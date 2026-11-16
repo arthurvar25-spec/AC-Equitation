@@ -1810,7 +1810,7 @@ def coach_page():
         )
 
         semaine = debut_semaine.isoformat()        
-                 planning_html = [
+        planning_html = [
             "<html><head><meta charset='utf-8'>",
             "<title>Planning AC Équitation</title>",
             """<style>
