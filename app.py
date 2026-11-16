@@ -79,6 +79,42 @@ def query(sql, values=()):
         return db.execute(sql, values).fetchall()
 
 def init_db():
+    
+# CORRECTION AUTOMATIQUE DE LA TABLE DES PONEYS
+
+def repair_pony_table():
+    with connect() as db:
+        db.execute("""
+        CREATE TABLE IF NOT EXISTS ponies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT,
+            age TEXT,
+            description TEXT,
+            photo BLOB
+        )
+        """)
+
+        columns = [
+            row["name"]
+            for row in db.execute("PRAGMA table_info(ponies)").fetchall()
+        ]
+
+        required = {
+            "nom": "TEXT",
+            "age": "TEXT",
+            "description": "TEXT",
+            "photo": "BLOB"
+        }
+
+        for column, column_type in required.items():
+            if column not in columns:
+                db.execute(
+                    f"ALTER TABLE ponies ADD COLUMN {column} {column_type}"
+                )
+
+        db.commit()
+
+repair_pony_table()
     with connect() as db:
         db.executescript("""
         CREATE TABLE IF NOT EXISTS families (
