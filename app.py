@@ -1799,6 +1799,17 @@ def coach_page():
     with tabs[10]:        
         import html
 
+               date_choisie = st.date_input(
+            "Choisir la semaine",
+            value=date.today(),
+            key="date_impression_planning"
+        )
+
+        debut_semaine = date_choisie - timedelta(
+            days=date_choisie.weekday()
+        )
+
+        semaine = debut_semaine.isoformat()        
         planning_html = [
             "<html><head><meta charset='utf-8'>",
             "<title>Planning AC Équitation</title>",
