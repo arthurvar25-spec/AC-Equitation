@@ -738,6 +738,7 @@ def family_page():
                 " — Statut :", req["statut"]
             )
 
+   
     # ---------------- DP ----------------
 
     with tabs[4]:
@@ -747,83 +748,124 @@ def family_page():
             "SELECT * FROM children WHERE family_id=?",
             (family_id,)
         )
-        lessons = rows("SELECT * FROM lessons ORDER BY jour,heure")
+
+        lessons = rows(
+            "SELECT * FROM lessons ORDER BY jour, heure"
+        )
 
         if children and lessons:
+
             with st.form("dp_request"):
+
                 child_names = {
                     c["prenom"]: c["id"] for c in children
                 }
+
                 child_name = st.selectbox(
                     "Enfant concerné",
                     list(child_names.keys())
                 )
-                pony_rows = rows("SELECT nom FROM ponies ORDER BY nom")
-pony_names = [p["nom"] for p in pony_rows]
 
-if pony_names:
-    poney_souhaite = st.selectbox(
-        "Poney ou cheval souhaité pour la DP",
-        pony_names
-    )
-else:
-    poney_souhaite = ""
-    st.warning("Aucun poney n'est encore enregistré.")
-lesson_options = {
+                pony_rows = rows(
+                    "SELECT nom FROM ponies ORDER BY nom"
+                )
+
+                pony_names = [
+                    p["nom"] for p in pony_rows
+                ]
+
+                if pony_names:
+                    poney_souhaite = st.selectbox(
+                        "Poney ou cheval souhaité pour la DP",
+                        pony_names
+                    )
+                else:
+                    poney_souhaite = ""
+                    st.warning(
+                        "Aucun poney n'est encore enregistré."
+                    )
+
+                lesson_options = {
                     f"{l['jour']} - {l['heure']} - {l['niveau']}": l["id"]
                     for l in lessons
                 }
 
-selected = st.multiselect(
+                selected = st.multiselect(
                     "Choisissez les 3 cours de la semaine",
                     list(lesson_options.keys())
                 )
 
-ok = st.form_submit_button("Envoyer ma demande de DP")
+                ok = st.form_submit_button(
+                    "Envoyer ma demande de DP"
+                )
 
-if ok:
-                 if len(selected) != 3:
-                        st.error("Il faut sélectionner exactement 3 cours.")
-                 else:
-                        existing = one(
-                            """SELECT id FROM dp_requests
-                            WHERE family_id=? AND child_id=?
-                            AND statut='En attente'""",
-                            (family_id, child_names[child_name])
+            if ok:
+
+                if len(selected) != 3:
+                    st.error(
+                        "Il faut sélectionner exactement 3 cours."
+                    )
+
+                else:
+                    existing = one(
+                        """
+                        SELECT id FROM dp_requests
+                        WHERE family_id=? AND child_id=?
+                        AND statut='En attente'
+                        """,
+                        (
+                            family_id,
+                            child_names[child_name]
                         )
-                        if existing:
-                            st.error("Une demande est déjà en attente.")
-                        else:
-                            course_ids = [
-                                lesson_options[x] for x in selected
-                            ]
-                            execute(
-    """
-    INSERT INTO dp_requests
-    (family_id, child_id, courses, poney_souhaite)
-    VALUES (?, ?, ?, ?)
-    """,
-    (
-        family_id,
-        child_names[child_name],
-        json.dumps(course_ids),
-        poney_souhaite
-    )
-)  
-                            st.success(
-                                "Demande envoyée. Elle doit être validée par un coach."
+                    )
+
+                    if existing:
+                        st.error(
+                            "Une demande est déjà en attente."
+                        )
+
+                    else:
+                        course_ids = [
+                            lesson_options[x] for x in selected
+                        ]
+
+                        execute(
+                            """
+                            INSERT INTO dp_requests
+                            (family_id, child_id, courses, poney_souhaite)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (
+                                family_id,
+                                child_names[child_name],
+                                json.dumps(course_ids),
+                                poney_souhaite
                             )
-                       else:
-            st.info("Il faut un enfant et des cours publiés.")
+                        )
+
+                        st.success(
+                            "Demande envoyée. Elle doit être validée par un coach."
+                        )
+                        st.rerun()
+
+        else:
+            st.info(
+                "Il faut un enfant et des cours publiés."
+            )
+
+        st.divider()
+        st.subheader("Mes demandes de demi-pension")
 
         for dp in rows(
             "SELECT * FROM dp_requests WHERE family_id=?",
             (family_id,)
         ):
-            st.write("Demande de DP :", dp["statut"])
+            st.write("Statut :", dp["statut"])
+
             st.write(
-    "Poney ou cheval souhaité :",
-    dp["poney_souhaite"] or "Non renseigné"
+                "Poney ou cheval souhaité :",
+                dp["poney_souhaite"] or "Non renseigné"
+            )
 )
     # ---------------- STAGES ET EVENEMENTS ----------------
 
