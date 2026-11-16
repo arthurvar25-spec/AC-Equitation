@@ -1807,7 +1807,8 @@ def coach_page():
 
         lessons = rows(
             "SELECT * FROM lessons ORDER BY heure"
-        )        import html
+        ) 
+         import html
 
         date_choisie = st.date_input(
             "Choisir la semaine",
