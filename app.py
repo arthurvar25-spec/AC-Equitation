@@ -205,7 +205,7 @@ def init_db():
 
     for table in tables:
         db.execute(table)
-         columns = [
+        columns = [
         row[1] for row in db.execute(
             "PRAGMA table_info(dp_requests)"
         ).fetchall()
