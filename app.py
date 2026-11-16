@@ -85,6 +85,16 @@ def init_db():
             pony_id INTEGER,
             UNIQUE(semaine_debut, child_id, lesson_id)
         )""",
+
+        
+        """CREATE TABLE IF NOT EXISTS weekly_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            semaine_debut TEXT,
+            child_id INTEGER,
+            pony_id INTEGER,
+            lesson_id INTEGER,
+            UNIQUE(semaine_debut, child_id, lesson_id)
+        )""",
         
         """CREATE TABLE IF NOT EXISTS coaches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
