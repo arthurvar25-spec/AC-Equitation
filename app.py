@@ -4,6 +4,7 @@ import sqlite3
 import hashlib
 import secrets
 import json
+import html
 from datetime import date, datetime, timedelta
 
 # =========================================================
