@@ -1793,10 +1793,7 @@ def coach_page():
                         )
 
                         st.rerun()
-    # ---------------- GESTION EQUIDES ----------------
 
-    with tabs[11]:
-        # Code pour supprimer les chevaux et poneys
     # ---------------- ATTRIBUTIONS SEMAINE ----------------
 
     with tabs[10]:
@@ -1934,7 +1931,12 @@ def coach_page():
 
                             st.success("Attribution enregistrée.")
                             st.rerun()
+ # ---------------- GESTION EQUIDES ----------------
 
+    with tabs[11]:
+        st.subheader("Gestion des chevaux et poneys")
+
+        # Ton code de gestion des équidés ici
 
 # =========================================================
 # CREATION DES COMPTES COACHS
