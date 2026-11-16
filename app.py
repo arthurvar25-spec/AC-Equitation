@@ -1799,7 +1799,7 @@ def coach_page():
     with tabs[10]:        
         import html
 
-               date_choisie = st.date_input(
+        date_choisie = st.date_input(
             "Choisir la semaine",
             value=date.today(),
             key="date_impression_planning"
