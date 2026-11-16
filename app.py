@@ -126,17 +126,7 @@ def init_db():
             poney_souhaite TEXT DEFAULT '',
             statut TEXT DEFAULT 'En attente'
         )""",# Ajouter la colonne du poney souhaité si elle n'existe pas
-  columns = [
-    row[1] for row in db.execute(
-        "PRAGMA table_info(dp_requests)"
-    ).fetchall()
-]
-
-if "poney_souhaite" not in columns:
-    db.execute(
-        "ALTER TABLE dp_requests ADD COLUMN poney_souhaite TEXT DEFAULT ''"
-    )
-    db.commit()       
+       
     """CREATE TABLE IF NOT EXISTS requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             family_id INTEGER,
