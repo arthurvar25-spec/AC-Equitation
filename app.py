@@ -779,7 +779,7 @@ selected = st.multiselect(
                     list(lesson_options.keys())
                 )
 
-                ok = st.form_submit_button("Envoyer ma demande de DP")
+ok = st.form_submit_button("Envoyer ma demande de DP")
 
                 if ok:
                     if len(selected) != 3:
