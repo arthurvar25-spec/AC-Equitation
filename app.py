@@ -224,7 +224,20 @@ def init_db():
 
     for table in tables:
         db.execute(table)
-        columns = [
+    # Attributions hebdomadaires des poneys et chevaux
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS pony_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            child_id INTEGER,
+            lesson_id INTEGER,
+            pony_id INTEGER,
+            semaine TEXT,
+            UNIQUE(child_id, lesson_id, semaine)
+        )
+    """)
+    db.commit()   
+    # Vérifier la colonne du poney souhaité
+    columns = [
         row[1] for row in db.execute(
             "PRAGMA table_info(dp_requests)"
         ).fetchall()
@@ -234,9 +247,20 @@ def init_db():
         db.execute(
             "ALTER TABLE dp_requests ADD COLUMN poney_souhaite TEXT DEFAULT ''"
         )
-        db.commit()
-    db.commit()
 
+    # Ajouter la date aux attributions des poneys
+    assignment_columns = [
+        row[1] for row in db.execute(
+            "PRAGMA table_info(assignments)"
+        ).fetchall()
+    ]
+
+    if "date_cours" not in assignment_columns:
+        db.execute(
+            "ALTER TABLE assignments ADD COLUMN date_cours TEXT"
+        )
+
+    db.commit()
 
 init_db()
 
@@ -1011,7 +1035,7 @@ def coach_page():
     st.header("Espace coach")
     st.caption("Gestion du club AC Équitation")
 
-    tabs = st.tabs([
+        tabs = st.tabs([
         "Tableau de bord",
         "Cavaliers",
         "Poneys",
@@ -1022,8 +1046,9 @@ def coach_page():
         "Événements",
         "Actualités",
         "Balades",
-        "Attributions semaine"
-    ])
+        "Attributions semaine",
+        "Gestion équidés"
+    ])       
 
     # ---------------- TABLEAU DE BORD ----------------
 
@@ -1768,7 +1793,10 @@ def coach_page():
                         )
 
                         st.rerun()
+    # ---------------- GESTION EQUIDES ----------------
 
+    with tabs[11]:
+        # Code pour supprimer les chevaux et poneys
     # ---------------- ATTRIBUTIONS SEMAINE ----------------
 
     with tabs[10]:
