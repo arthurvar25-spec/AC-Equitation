@@ -809,8 +809,7 @@ if ok:
         json.dumps(course_ids),
         poney_souhaite
     )
-)                            st.success(
-                                "Demande envoyée. Elle doit être validée par un coach."
+)                            st.success("Demande envoyée. Elle doit être validée par un coach."
                             )
         else:
             st.info("Il faut un enfant et des cours publiés.")
