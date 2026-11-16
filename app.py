@@ -205,7 +205,17 @@ def init_db():
 
     for table in tables:
         db.execute(table)
+         columns = [
+        row[1] for row in db.execute(
+            "PRAGMA table_info(dp_requests)"
+        ).fetchall()
+    ]
 
+    if "poney_souhaite" not in columns:
+        db.execute(
+            "ALTER TABLE dp_requests ADD COLUMN poney_souhaite TEXT DEFAULT ''"
+        )
+        db.commit()
     db.commit()
 
 
