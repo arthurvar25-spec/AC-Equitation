@@ -866,7 +866,7 @@ def family_page():
                 "Poney ou cheval souhaité :",
                 dp["poney_souhaite"] or "Non renseigné"
             )
-)
+
     # ---------------- STAGES ET EVENEMENTS ----------------
 
     with tabs[5]:
