@@ -1035,7 +1035,7 @@ def coach_page():
     st.header("Espace coach")
     st.caption("Gestion du club AC Équitation")
 
-        tabs = st.tabs([
+    tabs = st.tabs([
         "Tableau de bord",
         "Cavaliers",
         "Poneys",
