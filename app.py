@@ -781,8 +781,8 @@ selected = st.multiselect(
 
 ok = st.form_submit_button("Envoyer ma demande de DP")
 
-                if ok:
-                    if len(selected) != 3:
+if ok:
+                 if len(selected) != 3:
                         st.error("Il faut sélectionner exactement 3 cours.")
                     else:
                         existing = one(
