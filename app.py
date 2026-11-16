@@ -5,10 +5,11 @@ import hashlib
 import secrets
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
+import json
 
-# =====================================================
+# ==========================================================
 # AC EQUITATION - APPLICATION DU CLUB
-# =====================================================
+# ==========================================================
 
 st.set_page_config(
     page_title="AC Équitation",
@@ -16,161 +17,147 @@ st.set_page_config(
     layout="wide"
 )
 
-DB = "ac_equitation.db"
+DB = "ac_equitation_v2.db"
 
-# CHANGE CES DEUX CODES AVANT DE METTRE EN LIGNE
+# CHANGE CES CODES AVANT LA MISE EN LIGNE
 COACH_CODES = {
-    "COACH-AC-2026": "Coach 1",
-    "COACH2-AC-2026": "Coach 2"
+    "AC-COACH-01": "Coach 1",
+    "AC-COACH-02": "Coach 2"
 }
 
-# =====================================================
+JOURS = [
+    "Lundi", "Mardi", "Mercredi", "Jeudi",
+    "Vendredi", "Samedi", "Dimanche"
+]
+
+# ==========================================================
 # DESIGN
-# =====================================================
+# ==========================================================
 
 st.markdown("""
 <style>
 .stApp {
-    background: #f6f5ef;
+    background-color: #f5f4ed;
 }
 h1, h2, h3 {
-    color: #435b4b;
+    color: #405b49;
 }
 .stButton button {
     background: #607b65;
     color: white;
     border-radius: 10px;
-    border: none;
+    border: 1px solid #607b65;
 }
 .stButton button:hover {
-    background: #435b4b;
+    background: #405b49;
     color: white;
 }
-.card {
+div[data-testid="stForm"] {
     background: white;
     padding: 18px;
     border-radius: 14px;
-    border: 1px solid #e4e2d8;
-    margin-bottom: 12px;
+    border: 1px solid #e3e0d5;
 }
-.small {
-    color: #777;
-    font-size: 13px;
+div[data-testid="stMetric"] {
+    background: white;
+    padding: 15px;
+    border-radius: 12px;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# =====================================================
+# ==========================================================
 # BASE DE DONNEES
-# =====================================================
+# ==========================================================
 
 def connect():
     db = sqlite3.connect(DB)
     db.row_factory = sqlite3.Row
+    db.execute("PRAGMA foreign_keys = ON")
     return db
+
 
 def execute(sql, values=()):
     with connect() as db:
         db.execute(sql, values)
         db.commit()
 
+
 def query(sql, values=()):
     with connect() as db:
         return db.execute(sql, values).fetchall()
 
+
 def init_db():
-    
-# CORRECTION AUTOMATIQUE DE LA TABLE DES PONEYS
-
-def repair_pony_table():
-    with connect() as db:
-        db.execute("""
-        CREATE TABLE IF NOT EXISTS ponies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nom TEXT,
-            age TEXT,
-            description TEXT,
-            photo BLOB
-        )
-        """)
-
-        columns = [
-            row["name"]
-            for row in db.execute("PRAGMA table_info(ponies)").fetchall()
-        ]
-
-        required = {
-            "nom": "TEXT",
-            "age": "TEXT",
-            "description": "TEXT",
-            "photo": "BLOB"
-        }
-
-        for column, column_type in required.items():
-            if column not in columns:
-                db.execute(
-                    f"ALTER TABLE ponies ADD COLUMN {column} {column_type}"
-                )
-
-        db.commit()
-
-repair_pony_table()
     with connect() as db:
         db.executescript("""
         CREATE TABLE IF NOT EXISTS families (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nom TEXT,
-            email TEXT UNIQUE,
+            nom TEXT NOT NULL,
+            email TEXT UNIQUE NOT NULL,
             telephone TEXT,
             adresse TEXT,
-            password TEXT
+            password TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS coaches (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS children (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             family_id INTEGER,
-            prenom TEXT,
+            prenom TEXT NOT NULL,
             age INTEGER,
             poids REAL,
             taille REAL,
             galop TEXT,
-            photo BLOB
-        );
-
-        CREATE TABLE IF NOT EXISTS coaches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nom TEXT UNIQUE,
-            password TEXT
+            photo BLOB,
+            temporaire INTEGER DEFAULT 0
         );
 
         CREATE TABLE IF NOT EXISTS ponies (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nom TEXT,
+            nom TEXT NOT NULL,
             age TEXT,
             description TEXT,
-            photo BLOB
+            photo BLOB,
+            actif INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS slots (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            jour TEXT,
-            heure TEXT,
+            jour TEXT NOT NULL,
+            heure TEXT NOT NULL,
             niveau TEXT,
-            places INTEGER,
+            places INTEGER DEFAULT 8,
             actif INTEGER DEFAULT 1
         );
 
         CREATE TABLE IF NOT EXISTS assignments (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            child_id INTEGER,
-            slot_id INTEGER,
-            pony_id INTEGER
+            child_id INTEGER NOT NULL,
+            slot_id INTEGER NOT NULL,
+            pony_id INTEGER,
+            UNIQUE(child_id, slot_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS exceptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            slot_id INTEGER NOT NULL,
+            date_cours TEXT NOT NULL,
+            action TEXT NOT NULL,
+            nouveau_jour TEXT,
+            nouvelle_heure TEXT,
+            message TEXT
         );
 
         CREATE TABLE IF NOT EXISTS dp_requests (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            child_id INTEGER,
-            slot_ids TEXT,
+            child_id INTEGER NOT NULL,
+            slot_ids TEXT NOT NULL,
             statut TEXT DEFAULT 'En attente'
         );
 
@@ -180,6 +167,7 @@ repair_pony_table()
             slot_id INTEGER,
             date_absence TEXT,
             motif TEXT,
+            type_demande TEXT,
             statut TEXT DEFAULT 'En attente',
             created_at TEXT
         );
@@ -227,7 +215,8 @@ repair_pony_table()
             email TEXT,
             date_balade TEXT,
             heure TEXT,
-            tarif REAL
+            tarif REAL,
+            statut TEXT DEFAULT 'En attente'
         );
 
         CREATE TABLE IF NOT EXISTS notifications (
@@ -240,107 +229,167 @@ repair_pony_table()
         """)
         db.commit()
 
+
 init_db()
 
-# =====================================================
+# ==========================================================
 # OUTILS
-# =====================================================
+# ==========================================================
 
 def hash_password(password):
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac(
-        "sha256", password.encode(), salt.encode(), 100000
+        "sha256",
+        password.encode(),
+        salt.encode(),
+        200000
     ).hex()
     return salt + "$" + digest
+
 
 def check_password(password, stored):
     try:
         salt, digest = stored.split("$")
         test = hashlib.pbkdf2_hmac(
-            "sha256", password.encode(), salt.encode(), 100000
+            "sha256",
+            password.encode(),
+            salt.encode(),
+            200000
         ).hex()
         return secrets.compare_digest(test, digest)
     except Exception:
         return False
 
+
 def notify(family_id, message):
     if family_id:
-        execute(
-            "INSERT INTO notifications (family_id,message,date_creation) VALUES (?,?,?)",
-            (family_id, message, datetime.now().strftime("%d/%m/%Y %H:%M"))
-        )
+        execute("""
+        INSERT INTO notifications
+        (family_id, message, date_creation)
+        VALUES (?, ?, ?)
+        """, (
+            family_id,
+            message,
+            datetime.now().strftime("%d/%m/%Y %H:%M")
+        ))
+
+
+def notify_child(child_id, message):
+    rows = query(
+        "SELECT family_id FROM children WHERE id=?",
+        (child_id,)
+    )
+    if rows and rows[0]["family_id"]:
+        notify(rows[0]["family_id"], message)
+
 
 def photo_widget(photo):
     if photo:
         st.image(photo, use_container_width=True)
 
+
 def get_children(family_id):
-    return query("SELECT * FROM children WHERE family_id=?", (family_id,))
+    return query(
+        "SELECT * FROM children WHERE family_id=? ORDER BY prenom",
+        (family_id,)
+    )
 
-def get_child_name(child_id):
-    result = query("SELECT prenom FROM children WHERE id=?", (child_id,))
-    return result[0]["prenom"] if result else "Élève"
-
-def family_of_child(child_id):
-    result = query("SELECT family_id FROM children WHERE id=?", (child_id,))
-    return result[0]["family_id"] if result else None
 
 def slot_label(slot):
-    return f"{slot['jour']} à {slot['heure']} - {slot['niveau']}"
+    return (
+        f"{slot['jour']} à {slot['heure']} "
+        f"— {slot['niveau']}"
+    )
 
-# =====================================================
+
+def get_slot(slot_id):
+    rows = query("SELECT * FROM slots WHERE id=?", (slot_id,))
+    return rows[0] if rows else None
+
+
+def child_options(children):
+    return {c["id"]: c["prenom"] for c in children}
+
+
+# ==========================================================
 # SESSION
-# =====================================================
+# ==========================================================
 
-if "role" not in st.session_state:
+for key, default in {
+    "role": None,
+    "user_id": None,
+    "user_name": None
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
+
+
+def logout():
     st.session_state.role = None
-if "user_id" not in st.session_state:
     st.session_state.user_id = None
-if "user_name" not in st.session_state:
     st.session_state.user_name = None
+    st.rerun()
 
-# =====================================================
-# ENTETE
-# =====================================================
+
+# ==========================================================
+# TITRE
+# ==========================================================
 
 st.title("🐴 AC ÉQUITATION")
 st.caption("Le club, les poneys et les cavaliers réunis au même endroit.")
 st.divider()
 
-# =====================================================
+
+# ==========================================================
 # PAGE PUBLIQUE
-# =====================================================
+# ==========================================================
 
 def public_page():
-    st.subheader("Bienvenue au club !")
+
     tabs = st.tabs([
-        "Accueil", "Nos poneys", "Stages",
-        "Événements", "Actualités", "Réserver une balade",
-        "Connexion", "Créer un compte"
+        "Accueil",
+        "Nos poneys",
+        "Planning",
+        "Stages",
+        "Concours et événements",
+        "Actualités",
+        "Balades",
+        "Connexion",
+        "Créer un compte"
     ])
 
+    # ACCUEIL
     with tabs[0]:
         st.markdown("""
-        <div class="card">
-        <h2>Bienvenue chez AC Équitation</h2>
-        Retrouvez les informations du club, les poneys,
-        les stages et les activités proposées.
-        </div>
-        """, unsafe_allow_html=True)
+        ## Bienvenue chez AC Équitation 🌿
+
+        Retrouvez toutes les informations du club :
+        les poneys, les cours, les stages, les concours
+        et les actualités.
+        """)
+
+        st.subheader("Les dernières nouvelles")
 
         for article in query(
             "SELECT * FROM articles ORDER BY id DESC LIMIT 3"
         ):
-            st.markdown(f"### {article['titre']}")
-            photo_widget(article["photo"])
-            st.write(article["contenu"])
-            st.caption(article["date_article"])
+            with st.container(border=True):
+                st.subheader(article["titre"])
+                photo_widget(article["photo"])
+                st.write(article["contenu"])
+                st.caption(article["date_article"])
 
+    # PONEYS
     with tabs[1]:
         st.subheader("Les poneys du club")
-        ponies = query("SELECT * FROM ponies ORDER BY nom")
+
+        ponies = query(
+            "SELECT * FROM ponies WHERE actif=1 ORDER BY nom"
+        )
+
         if not ponies:
             st.info("Les fiches des poneys seront bientôt disponibles.")
+
         for pony in ponies:
             with st.container(border=True):
                 st.subheader(pony["nom"])
@@ -348,115 +397,209 @@ def public_page():
                 st.write("Âge :", pony["age"])
                 st.write(pony["description"])
 
+    # PLANNING PUBLIC
     with tabs[2]:
-        st.subheader("Stages à venir")
-        stages = query("SELECT * FROM stages ORDER BY date_stage")
-        for stage in stages:
-            regs = query(
+        st.subheader("Les horaires des cours")
+
+        slots = query("""
+        SELECT * FROM slots
+        WHERE actif=1
+        ORDER BY
+        CASE jour
+            WHEN 'Lundi' THEN 1
+            WHEN 'Mardi' THEN 2
+            WHEN 'Mercredi' THEN 3
+            WHEN 'Jeudi' THEN 4
+            WHEN 'Vendredi' THEN 5
+            WHEN 'Samedi' THEN 6
+            ELSE 7
+        END, heure
+        """)
+
+        if not slots:
+            st.info("Le planning sera bientôt disponible.")
+
+        for slot in slots:
+            st.write(
+                f"**{slot['jour']} — {slot['heure']}** "
+                f"• {slot['niveau']} • {slot['places']} places"
+            )
+
+    # STAGES
+    with tabs[3]:
+        st.subheader("Stages disponibles")
+
+        for stage in query(
+            "SELECT * FROM stages ORDER BY date_stage"
+        ):
+            count = query(
                 "SELECT COUNT(*) AS n FROM stage_regs WHERE stage_id=?",
                 (stage["id"],)
             )[0]["n"]
+
+            places_restantes = max(0, stage["places"] - count)
+
             with st.container(border=True):
                 st.subheader(stage["nom"])
-                st.write(
-                    f"{stage['discipline']} • {stage['date_stage']} • "
-                    f"{stage['horaire']}"
-                )
-                st.write(f"Niveau : {stage['niveau']}")
-                st.write(f"Places restantes : {max(0, stage['places']-regs)}")
-                st.write(f"Tarif : {stage['tarif']} €")
-                with st.form(f"stage_{stage['id']}"):
+                st.write("Discipline :", stage["discipline"])
+                st.write("Date :", stage["date_stage"])
+                st.write("Horaires :", stage["horaire"])
+                st.write("Niveau minimum :", stage["niveau"])
+                st.write("Places restantes :", places_restantes)
+                st.write("Tarif :", stage["tarif"], "€")
+
+                with st.form(f"stage_public_{stage['id']}"):
                     enfant = st.text_input("Prénom de l'enfant")
-                    responsable = st.text_input("Nom du responsable")
+                    responsable = st.text_input(
+                        "Nom et prénom du responsable"
+                    )
                     tel = st.text_input("Téléphone")
                     email = st.text_input("Adresse e-mail")
-                    ok = st.form_submit_button("Réserver une place")
+
+                    ok = st.form_submit_button("S'inscrire")
+
                     if ok:
                         if not all([enfant, responsable, tel, email]):
-                            st.error("Merci de remplir tous les champs.")
-                        elif regs >= stage["places"]:
+                            st.error("Remplis tous les champs.")
+                        elif places_restantes <= 0:
                             st.error("Ce stage est complet.")
                         else:
                             execute("""
                             INSERT INTO stage_regs
-                            (stage_id,nom_enfant,nom_responsable,telephone,email)
-                            VALUES (?,?,?,?,?)
+                            (stage_id, nom_enfant, nom_responsable,
+                             telephone, email)
+                            VALUES (?, ?, ?, ?, ?)
                             """, (
-                                stage["id"], enfant, responsable, tel, email
+                                stage["id"], enfant, responsable,
+                                tel, email
                             ))
-                            st.success("Demande d'inscription enregistrée.")
+                            st.success("Demande d'inscription envoyée.")
 
-    with tabs[3]:
-        st.subheader("Événements du club")
-        for event in query("SELECT * FROM events ORDER BY date_event"):
+    # CONCOURS ET EVENEMENTS
+    with tabs[4]:
+        st.subheader("Concours et événements")
+
+        events = query(
+            "SELECT * FROM events ORDER BY date_event"
+        )
+
+        if not events:
+            st.info("Aucun événement publié pour le moment.")
+
+        for event in events:
             with st.container(border=True):
                 st.subheader(event["nom"])
                 st.write(event["date_event"])
                 st.write(event["description"])
 
-    with tabs[4]:
-        st.subheader("Les nouvelles du club")
-        for article in query("SELECT * FROM articles ORDER BY id DESC"):
+    # ACTUALITES
+    with tabs[5]:
+        st.subheader("Les actualités du club")
+
+        for article in query(
+            "SELECT * FROM articles ORDER BY id DESC"
+        ):
             with st.container(border=True):
                 st.subheader(article["titre"])
                 photo_widget(article["photo"])
                 st.write(article["contenu"])
                 st.caption(article["date_article"])
 
-    with tabs[5]:
+    # BALADES
+    with tabs[6]:
         st.subheader("Réserver une balade à poney")
         st.write("Réservation sans création de compte.")
+
         with st.form("walk_form"):
-            enfant = st.text_input("Prénom de l'enfant")
-            responsable = st.text_input("Nom et prénom du responsable")
+            enfant = st.text_input("Prénom et nom de l'enfant")
+            responsable = st.text_input(
+                "Prénom et nom du responsable"
+            )
             telephone = st.text_input("Téléphone")
             email = st.text_input("Adresse e-mail")
-            jour = st.date_input("Date souhaitée", min_value=date.today())
-            heure = st.selectbox(
-                "Horaire", ["10h00", "10h30", "11h00", "14h00", "14h30", "15h00", "15h30", "16h00"]
+            jour = st.date_input(
+                "Date souhaitée",
+                min_value=date.today()
             )
-            tarif = st.number_input("Tarif de la balade (€)", min_value=0.0, value=10.0)
+            heure = st.selectbox(
+                "Horaire",
+                [
+                    "10h00", "10h30", "11h00",
+                    "14h00", "14h30", "15h00",
+                    "15h30", "16h00"
+                ]
+            )
+            tarif = st.number_input(
+                "Tarif de la balade (€)",
+                min_value=0.0,
+                value=10.0
+            )
+
             ok = st.form_submit_button("Envoyer ma réservation")
+
             if ok:
                 if not all([enfant, responsable, telephone, email]):
-                    st.error("Merci de remplir tous les champs.")
+                    st.error("Remplis tous les champs.")
                 else:
                     execute("""
                     INSERT INTO walk_bookings
-                    (enfant,responsable,telephone,email,date_balade,heure,tarif)
-                    VALUES (?,?,?,?,?,?,?)
+                    (enfant, responsable, telephone, email,
+                     date_balade, heure, tarif)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """, (
                         enfant, responsable, telephone, email,
                         str(jour), heure, tarif
                     ))
-                    st.success("Demande envoyée au club !")
+                    st.success(
+                        "Ta demande a été envoyée au club."
+                    )
 
-    with tabs[6]:
+    # CONNEXION
+    with tabs[7]:
         st.subheader("Connexion")
+
         role = st.radio(
-            "Je suis :", ["Famille", "Coach"], horizontal=True
+            "Je suis :",
+            ["Famille", "Coach"],
+            horizontal=True
         )
+
         with st.form("login_form"):
             if role == "Famille":
                 email = st.text_input("Adresse e-mail")
-                password = st.text_input("Mot de passe", type="password")
+                password = st.text_input(
+                    "Mot de passe",
+                    type="password"
+                )
             else:
-                code = st.text_input("Code coach", type="password")
-                password = st.text_input("Mot de passe coach", type="password")
+                code = st.text_input(
+                    "Code coach",
+                    type="password"
+                )
+                password = st.text_input(
+                    "Mot de passe coach",
+                    type="password"
+                )
+
             ok = st.form_submit_button("Se connecter")
 
             if ok:
                 if role == "Famille":
                     users = query(
-                        "SELECT * FROM families WHERE email=?", (email,)
+                        "SELECT * FROM families WHERE email=?",
+                        (email.strip().lower(),)
                     )
-                    if users and check_password(password, users[0]["password"]):
+
+                    if users and check_password(
+                        password, users[0]["password"]
+                    ):
                         st.session_state.role = "family"
                         st.session_state.user_id = users[0]["id"]
                         st.session_state.user_name = users[0]["nom"]
                         st.rerun()
                     else:
                         st.error("Identifiants incorrects.")
+
                 else:
                     if code not in COACH_CODES:
                         st.error("Code coach incorrect.")
@@ -465,6 +608,7 @@ def public_page():
                             "SELECT * FROM coaches WHERE nom=?",
                             (COACH_CODES[code],)
                         )
+
                         if coaches and check_password(
                             password, coaches[0]["password"]
                         ):
@@ -477,96 +621,159 @@ def public_page():
                                 "Compte coach non créé ou mot de passe incorrect."
                             )
 
-    with tabs[7]:
+    # CREATION COMPTE FAMILLE
+    with tabs[8]:
         st.subheader("Créer un compte famille")
-        st.write("Un seul compte parent peut gérer plusieurs enfants.")
+        st.write(
+            "Un compte parent peut gérer plusieurs enfants."
+        )
+
         with st.form("register_form"):
             nom = st.text_input("Nom et prénom du responsable")
             email = st.text_input("Adresse e-mail")
             tel = st.text_input("Téléphone")
             adresse = st.text_input("Adresse postale")
-            password = st.text_input("Créer un mot de passe", type="password")
-            password2 = st.text_input("Confirmer le mot de passe", type="password")
+            password = st.text_input(
+                "Créer un mot de passe",
+                type="password"
+            )
+            password2 = st.text_input(
+                "Confirmer le mot de passe",
+                type="password"
+            )
+
             ok = st.form_submit_button("Créer mon compte")
+
             if ok:
                 if not all([nom, email, tel, adresse, password, password2]):
                     st.error("Tous les champs sont obligatoires.")
                 elif password != password2:
                     st.error("Les mots de passe ne correspondent pas.")
                 elif len(password) < 8:
-                    st.error("Choisis un mot de passe d'au moins 8 caractères.")
-                elif query("SELECT id FROM families WHERE email=?", (email,)):
-                    st.error("Cette adresse e-mail possède déjà un compte.")
+                    st.error("8 caractères minimum.")
+                elif query(
+                    "SELECT id FROM families WHERE email=?",
+                    (email.strip().lower(),)
+                ):
+                    st.error("Cette adresse e-mail est déjà utilisée.")
                 else:
                     execute("""
-                    INSERT INTO families (nom,email,telephone,adresse,password)
-                    VALUES (?,?,?,?,?)
+                    INSERT INTO families
+                    (nom, email, telephone, adresse, password)
+                    VALUES (?, ?, ?, ?, ?)
                     """, (
-                        nom, email, tel, adresse, hash_password(password)
+                        nom, email.strip().lower(), tel,
+                        adresse, hash_password(password)
                     ))
-                    st.success("Compte créé ! Tu peux maintenant te connecter.")
+                    st.success(
+                        "Compte créé ! Tu peux maintenant te connecter."
+                    )
 
-# =====================================================
+
+# ==========================================================
 # ESPACE FAMILLE
-# =====================================================
+# ==========================================================
 
 def family_page():
+
     fid = st.session_state.user_id
-    family = query("SELECT * FROM families WHERE id=?", (fid,))[0]
+    families = query(
+        "SELECT * FROM families WHERE id=?",
+        (fid,)
+    )
+
+    if not families:
+        st.error("Compte introuvable.")
+        logout()
+
+    family = families[0]
 
     st.title(f"Bonjour {family['nom']} !")
+
     tabs = st.tabs([
-        "Accueil", "Mes enfants", "Mon planning",
-        "Espace DP", "Absences et rattrapages",
-        "Stages et événements", "Notifications"
+        "Accueil",
+        "Mes enfants",
+        "Mon planning",
+        "Demi-pension",
+        "Absences et rattrapages",
+        "Stages et événements",
+        "Notifications"
     ])
 
+    children = get_children(fid)
+
+    # ACCUEIL
     with tabs[0]:
         st.subheader("Mon espace famille")
-        st.write("Bienvenue dans votre espace personnel.")
         st.write("Adresse e-mail :", family["email"])
         st.write("Téléphone :", family["telephone"])
         st.write("Adresse :", family["adresse"])
+        st.metric("Nombre d'enfants", len(children))
 
+    # ENFANTS
     with tabs[1]:
         st.subheader("Mes enfants")
-        for child in get_children(fid):
+
+        for child in children:
             with st.container(border=True):
                 st.subheader(child["prenom"])
                 photo_widget(child["photo"])
-                st.write(f"Âge : {child['age']} ans")
-                st.write(f"Poids : {child['poids']} kg")
-                st.write(f"Taille : {child['taille']} cm")
-                st.write(f"Niveau : {child['galop']}")
+                st.write("Âge :", child["age"], "ans")
+                st.write("Poids :", child["poids"], "kg")
+                st.write("Taille :", child["taille"], "cm")
+                st.write("Galop :", child["galop"])
 
         st.markdown("### Ajouter un enfant")
-        with st.form("add_child"):
+
+        with st.form("add_child_form"):
             prenom = st.text_input("Prénom")
-            age = st.number_input("Âge", min_value=2, max_value=25, value=8)
-            poids = st.number_input("Poids (kg)", min_value=0.0, value=25.0)
-            taille = st.number_input("Taille (cm)", min_value=0.0, value=120.0)
+            age = st.number_input(
+                "Âge",
+                min_value=3,
+                max_value=99,
+                value=8
+            )
+            poids = st.number_input(
+                "Poids (kg)",
+                min_value=0.0,
+                value=25.0
+            )
+            taille = st.number_input(
+                "Taille (cm)",
+                min_value=0.0,
+                value=120.0
+            )
             galop = st.selectbox(
                 "Niveau",
-                ["Débutant", "Galop 1", "Galop 2", "Galop 3",
-                 "Galop 4", "Galop 5", "Galop 6", "Galop 7"]
+                [
+                    "Débutant", "Galop 1", "Galop 2",
+                    "Galop 3", "Galop 4", "Galop 5",
+                    "Galop 6", "Galop 7"
+                ]
             )
-            photo = st.file_uploader("Photo de l'enfant", type=["png", "jpg", "jpeg"])
-            ok = st.form_submit_button("Ajouter")
-            if ok and prenom:
+            photo = st.file_uploader(
+                "Photo de l'enfant",
+                type=["png", "jpg", "jpeg"]
+            )
+
+            ok = st.form_submit_button("Ajouter l'enfant")
+
+            if ok and prenom.strip():
                 execute("""
                 INSERT INTO children
-                (family_id,prenom,age,poids,taille,galop,photo)
-                VALUES (?,?,?,?,?,?,?)
+                (family_id, prenom, age, poids, taille, galop, photo)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    fid, prenom, age, poids, taille, galop,
-                    photo.getvalue() if photo else None
+                    fid, prenom, age, poids, taille,
+                    galop, photo.getvalue() if photo else None
                 ))
                 st.success("Enfant ajouté.")
                 st.rerun()
 
+    # PLANNING
     with tabs[2]:
-        st.subheader("Mon planning")
-        children = get_children(fid)
+        st.subheader("Mon planning hebdomadaire")
+
         if children:
             child = st.selectbox(
                 "Choisir un enfant",
@@ -574,87 +781,121 @@ def family_page():
                 format_func=lambda x: x["prenom"],
                 key="family_planning_child"
             )
+
             rows = query("""
-            SELECT slots.jour,slots.heure,slots.niveau,ponies.nom AS poney
+            SELECT slots.*, ponies.nom AS poney
             FROM assignments
             JOIN slots ON slots.id=assignments.slot_id
             LEFT JOIN ponies ON ponies.id=assignments.pony_id
             WHERE assignments.child_id=?
-            ORDER BY slots.jour,slots.heure
+            ORDER BY slots.jour, slots.heure
             """, (child["id"],))
+
             if rows:
                 for row in rows:
                     st.write(
-                        f"**{row['jour']} à {row['heure']}** — "
-                        f"{row['niveau']} — Poney : {row['poney'] or 'À définir'}"
+                        f"**{row['jour']} à {row['heure']}** "
+                        f"— {row['niveau']} — "
+                        f"Poney : {row['poney'] or 'À définir'}"
                     )
             else:
-                st.info("Aucun cours attribué pour le moment.")
+                st.info("Aucun cours attribué.")
         else:
-            st.info("Ajoute d'abord un enfant à ton compte.")
+            st.info("Ajoute d'abord un enfant.")
 
+    # DEMI-PENSION
     with tabs[3]:
         st.subheader("Espace demi-pension")
-        st.write("""
-        Les cavaliers en demi-pension peuvent demander leurs
-        3 cours hebdomadaires parmi les créneaux proposés par le club.
-        Le choix doit être validé par un coach.
-        """)
-        children = get_children(fid)
+        st.write(
+            "Choisis trois cours hebdomadaires. "
+            "Un coach devra valider ta demande."
+        )
+
         if children:
             child = st.selectbox(
-                "Pour quel enfant ?",
+                "Enfant concerné",
                 children,
                 format_func=lambda x: x["prenom"],
                 key="dp_child"
             )
-            slots = query(
-                "SELECT * FROM slots WHERE actif=1 ORDER BY jour,heure"
-            )
+
+            slots = query("""
+            SELECT * FROM slots
+            WHERE actif=1
+            ORDER BY jour, heure
+            """)
+
             if slots:
-                st.write("Sélectionne exactement 3 cours.")
+                slot_ids = [s["id"] for s in slots]
+                slot_names = {
+                    s["id"]: slot_label(s) for s in slots
+                }
+
                 choices = st.multiselect(
-                    "Les 3 cours de la semaine",
-                    options=[s["id"] for s in slots],
-                    format_func=lambda sid: slot_label(
-                        next(s for s in slots if s["id"] == sid)
-                    ),
+                    "Choisir exactement 3 cours",
+                    options=slot_ids,
+                    format_func=lambda sid: slot_names[sid],
                     max_selections=3,
-                    key="dp_choices"
+                    key=f"dp_choices_{child['id']}"
                 )
-                if st.button("Envoyer ma demande de DP"):
+
+                if st.button(
+                    "Envoyer ma demande de demi-pension",
+                    key=f"send_dp_{child['id']}"
+                ):
                     if len(choices) != 3:
-                        st.error("Tu dois choisir exactement 3 cours.")
+                        st.error("Il faut choisir exactement 3 cours.")
                     else:
-                        old = query("""
+                        pending = query("""
                         SELECT id FROM dp_requests
                         WHERE child_id=? AND statut='En attente'
                         """, (child["id"],))
-                        if old:
-                            st.warning("Une demande est déjà en attente.")
+
+                        if pending:
+                            st.warning(
+                                "Une demande est déjà en attente."
+                            )
                         else:
                             execute("""
-                            INSERT INTO dp_requests (child_id,slot_ids,statut)
-                            VALUES (?,?,?)
+                            INSERT INTO dp_requests
+                            (child_id, slot_ids, statut)
+                            VALUES (?, ?, 'En attente')
                             """, (
-                                child["id"], ",".join(map(str, choices)),
-                                "En attente"
+                                child["id"],
+                                json.dumps(choices)
                             ))
-                            st.success("Demande envoyée aux coachs.")
-                requests = query(
-                    "SELECT * FROM dp_requests WHERE child_id=? ORDER BY id DESC",
-                    (child["id"],)
-                )
-                for req in requests:
-                    st.write(f"Demande DP : **{req['statut']}**")
-            else:
-                st.info("Les coachs n'ont pas encore créé de créneaux.")
-        else:
-            st.info("Ajoute un enfant avant de faire une demande de DP.")
+                            st.success(
+                                "Demande envoyée aux coachs."
+                            )
+                            st.rerun()
 
+                requests = query("""
+                SELECT * FROM dp_requests
+                WHERE child_id=?
+                ORDER BY id DESC
+                """, (child["id"],))
+
+                for req in requests:
+                    st.write(
+                        f"Demande du {req['id']} : **{req['statut']}**"
+                    )
+                    try:
+                        selected_ids = json.loads(req["slot_ids"])
+                        for sid in selected_ids:
+                            slot = get_slot(sid)
+                            if slot:
+                                st.caption(slot_label(slot))
+                    except Exception:
+                        pass
+            else:
+                st.info("Les coachs n'ont pas encore créé de cours.")
+        else:
+            st.info("Ajoute un enfant avant de faire une demande.")
+
+    # ABSENCES ET RATTRAPAGES
     with tabs[4]:
         st.subheader("Absences et rattrapages")
-        children = get_children(fid)
+
         if children:
             child = st.selectbox(
                 "Enfant concerné",
@@ -662,473 +903,915 @@ def family_page():
                 format_func=lambda x: x["prenom"],
                 key="absence_child"
             )
-            slots = query("SELECT * FROM slots WHERE actif=1")
+
+            slots = query(
+                "SELECT * FROM slots WHERE actif=1 ORDER BY jour,heure"
+            )
+
             with st.form("absence_form"):
+                type_demande = st.selectbox(
+                    "Type de demande",
+                    ["Signaler une absence", "Demander un rattrapage"]
+                )
+
                 slot_id = st.selectbox(
                     "Cours concerné",
                     [s["id"] for s in slots],
-                    format_func=lambda sid: slot_label(
-                        next(s for s in slots if s["id"] == sid)
-                    )
+                    format_func=lambda sid: slot_label(get_slot(sid))
                 ) if slots else None
+
                 jour = st.date_input(
-                    "Date du cours manqué",
+                    "Date du cours",
                     min_value=date.today()
                 )
-                motif = st.text_area("Motif")
-                ok = st.form_submit_button("Envoyer ma demande")
+                motif = st.text_area("Message pour le coach")
+
+                ok = st.form_submit_button("Envoyer la demande")
+
                 if ok:
-                    limite = datetime.combine(jour, time.min)
-                    if limite < datetime.now() + timedelta(hours=24):
-                        st.error("La demande doit être faite au moins 24 h à l'avance.")
+                    debut = datetime.combine(jour, time.min)
+
+                    if debut < datetime.now() + timedelta(hours=24):
+                        st.error(
+                            "La demande doit être envoyée au moins 24 h à l'avance."
+                        )
                     elif slot_id is None:
                         st.error("Aucun cours disponible.")
                     else:
                         execute("""
                         INSERT INTO absences
-                        (child_id,slot_id,date_absence,motif,created_at)
-                        VALUES (?,?,?,?,?)
+                        (child_id, slot_id, date_absence, motif,
+                         type_demande, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """, (
-                            child["id"], slot_id, str(jour), motif,
+                            child["id"], slot_id, str(jour),
+                            motif, type_demande,
                             datetime.now().isoformat()
                         ))
-                        st.success("Demande envoyée.")
-            for absence in query(
-                "SELECT * FROM absences WHERE child_id=? ORDER BY id DESC",
-                (child["id"],)
-            ):
+                        st.success("Demande envoyée aux coachs.")
+                        st.rerun()
+
+            for item in query("""
+            SELECT * FROM absences
+            WHERE child_id=?
+            ORDER BY id DESC
+            """, (child["id"],)):
                 st.write(
-                    f"{absence['date_absence']} — {absence['statut']}"
+                    f"**{item['type_demande']}** — "
+                    f"{item['date_absence']} — {item['statut']}"
                 )
 
+    # STAGES ET EVENEMENTS
     with tabs[5]:
-        st.subheader("Stages et événements")
-        st.markdown("### Stages")
-        for stage in query("SELECT * FROM stages ORDER BY date_stage"):
+        st.subheader("Stages")
+
+        for stage in query(
+            "SELECT * FROM stages ORDER BY date_stage"
+        ):
             st.write(
-                f"**{stage['nom']}** — {stage['date_stage']} — "
-                f"{stage['tarif']} €"
+                f"**{stage['nom']}** — {stage['date_stage']} "
+                f"— {stage['tarif']} €"
             )
-        st.markdown("### Événements")
-        for event in query("SELECT * FROM events ORDER BY date_event"):
+
+        st.divider()
+        st.subheader("Événements et concours")
+
+        for event in query(
+            "SELECT * FROM events ORDER BY date_event"
+        ):
             st.write(f"**{event['nom']}** — {event['date_event']}")
             st.write(event["description"])
 
+    # NOTIFICATIONS
     with tabs[6]:
         st.subheader("Mes notifications")
+
         notifications = query("""
         SELECT * FROM notifications
-        WHERE family_id=? ORDER BY id DESC
+        WHERE family_id=?
+        ORDER BY id DESC
         """, (fid,))
-        if not notifications:
-            st.info("Tu n'as pas encore de notification.")
-        for n in notifications:
-            st.write(f"🔔 {n['date_creation']} — {n['message']}")
 
-# =====================================================
+        if not notifications:
+            st.info("Aucune notification pour le moment.")
+
+        for n in notifications:
+            with st.container(border=True):
+                st.write("🔔", n["message"])
+                st.caption(n["date_creation"])
+
+                if not n["lu"]:
+                    if st.button(
+                        "Marquer comme lue",
+                        key=f"read_{n['id']}"
+                    ):
+                        execute(
+                            "UPDATE notifications SET lu=1 WHERE id=?",
+                            (n["id"],)
+                        )
+                        st.rerun()
+
+
+# ==========================================================
 # ESPACE COACH
-# =====================================================
+# ==========================================================
 
 def coach_page():
+
     st.title(f"Espace coach — {st.session_state.user_name}")
+
     tabs = st.tabs([
-        "Tableau de bord", "Élèves", "Poneys",
-        "Planning", "Demandes DP", "Absences",
-        "Stages", "Événements", "Articles",
-        "Balades réservées", "Inscriptions stages"
+        "Accueil",
+        "Élèves",
+        "Poneys",
+        "Planning",
+        "Demandes DP",
+        "Absences et rattrapages",
+        "Stages",
+        "Concours et événements",
+        "Articles",
+        "Balades",
+        "Inscriptions stages"
     ])
 
+    # TABLEAU DE BORD
     with tabs[0]:
-        st.subheader("Vue d'ensemble")
+        st.subheader("Tableau de bord")
+
         c1, c2, c3 = st.columns(3)
-        c1.metric("Familles", len(query("SELECT id FROM families")))
-        c2.metric("Élèves", len(query("SELECT id FROM children")))
-        c3.metric("Poneys", len(query("SELECT id FROM ponies")))
+        c1.metric(
+            "Familles",
+            len(query("SELECT id FROM families"))
+        )
+        c2.metric(
+            "Élèves",
+            len(query("SELECT id FROM children"))
+        )
+        c3.metric(
+            "Poneys",
+            len(query("SELECT id FROM ponies WHERE actif=1"))
+        )
+
         st.write("Bienvenue dans la gestion du club.")
 
+    # ELEVES
     with tabs[1]:
-        st.subheader("Liste des élèves")
-        for child in query("""
-        SELECT children.*,families.nom AS famille
-        FROM children LEFT JOIN families
-        ON children.family_id=families.id
-        ORDER BY prenom
-        """):
-            with st.container(border=True):
-                st.write(
-                    f"**{child['prenom']}** — Famille : {child['famille']}"
+        st.subheader("Gestion des élèves")
+
+        with st.expander("Ajouter un élève temporaire"):
+            with st.form("temporary_student"):
+                prenom = st.text_input("Prénom de l'élève")
+                age = st.number_input(
+                    "Âge",
+                    min_value=3,
+                    max_value=99,
+                    value=8
                 )
+                niveau = st.selectbox(
+                    "Niveau",
+                    ["Débutant", "Galop 1", "Galop 2",
+                     "Galop 3", "Galop 4", "Galop 5",
+                     "Galop 6", "Galop 7"]
+                )
+
+                ok = st.form_submit_button("Ajouter")
+
+                if ok and prenom:
+                    execute("""
+                    INSERT INTO children
+                    (family_id, prenom, age, galop, temporaire)
+                    VALUES (NULL, ?, ?, ?, 1)
+                    """, (prenom, age, niveau))
+                    st.success("Élève temporaire ajouté.")
+                    st.rerun()
+
+        students = query("""
+        SELECT children.*, families.nom AS famille
+        FROM children
+        LEFT JOIN families ON children.family_id=families.id
+        ORDER BY children.prenom
+        """)
+
+        ponies = query(
+            "SELECT * FROM ponies WHERE actif=1 ORDER BY nom"
+        )
+
+        for child in students:
+            with st.container(border=True):
+                st.subheader(child["prenom"])
+
+                if child["famille"]:
+                    st.caption("Famille : " + child["famille"])
+                else:
+                    st.caption("Élève temporaire")
+
                 st.write(
-                    f"{child['age']} ans • {child['poids']} kg • "
-                    f"{child['taille']} cm • {child['galop']}"
+                    f"{child['age']} ans • {child['poids']} kg "
+                    f"• {child['taille']} cm • {child['galop']}"
                 )
                 photo_widget(child["photo"])
-                ponies = query("SELECT * FROM ponies ORDER BY nom")
+
                 if ponies:
-                    current = query(
-                        "SELECT pony_id FROM assignments WHERE child_id=? LIMIT 1",
-                        (child["id"],)
-                    )
-                    default = current[0]["pony_id"] if current else ponies[0]["id"]
+                    current = query("""
+                    SELECT pony_id FROM assignments
+                    WHERE child_id=? AND pony_id IS NOT NULL
+                    LIMIT 1
+                    """, (child["id"],))
+
                     ids = [p["id"] for p in ponies]
+                    default = current[0]["pony_id"] if current else ids[0]
+
                     selected = st.selectbox(
-                        f"Poney de {child['prenom']}",
+                        "Attribuer un poney",
                         ids,
                         index=ids.index(default) if default in ids else 0,
                         format_func=lambda pid: next(
-                            p["nom"] for p in ponies if p["id"] == pid
+                            p["nom"] for p in ponies
+                            if p["id"] == pid
                         ),
-                        key=f"pony_child_{child['id']}"
+                        key=f"pony_{child['id']}"
                     )
-                    if st.button(
-                        f"Attribuer le poney à {child['prenom']}",
-                        key=f"assign_pony_{child['id']}"
-                    ):
-                        execute(
-                            "DELETE FROM assignments WHERE child_id=?",
-                            (child["id"],)
-                        )
-                        execute("""
-                        INSERT INTO assignments (child_id,pony_id)
-                        VALUES (?,?)
-                        """, (child["id"], selected))
-                        notify(
-                            child["family_id"],
-                            f"Un poney a été attribué à {child['prenom']}."
-                        )
-                        st.success("Poney attribué.")
 
+                    if st.button(
+                        "Enregistrer le poney",
+                        key=f"savepony_{child['id']}"
+                    ):
+                        execute("""
+                        UPDATE assignments SET pony_id=?
+                        WHERE child_id=?
+                        """, (selected, child["id"]))
+
+                        st.success("Poney enregistré.")
+                        st.rerun()
+
+    # PONEYS
     with tabs[2]:
         st.subheader("Gestion des poneys")
+
         with st.form("pony_form"):
             nom = st.text_input("Nom du poney")
             age = st.text_input("Âge")
-            description = st.text_area("Caractère et description")
-            photo = st.file_uploader(
-                "Photo du poney", type=["png", "jpg", "jpeg"]
+            description = st.text_area(
+                "Caractère et description"
             )
+            photo = st.file_uploader(
+                "Photo du poney",
+                type=["png", "jpg", "jpeg"],
+                key="pony_photo"
+            )
+
             ok = st.form_submit_button("Ajouter le poney")
-            if ok and nom:
+
+            if ok and nom.strip():
                 execute("""
-                INSERT INTO ponies (nom,age,description,photo)
-                VALUES (?,?,?,?)
+                INSERT INTO ponies (nom, age, description, photo)
+                VALUES (?, ?, ?, ?)
                 """, (
                     nom, age, description,
                     photo.getvalue() if photo else None
                 ))
                 st.success("Poney ajouté.")
                 st.rerun()
-        for pony in query("SELECT * FROM ponies ORDER BY nom"):
+
+        for pony in query(
+            "SELECT * FROM ponies ORDER BY nom"
+        ):
             with st.container(border=True):
-                st.write(f"**{pony['nom']}** — {pony['age']}")
+                st.subheader(pony["nom"])
                 photo_widget(pony["photo"])
+                st.write(pony["age"])
                 st.write(pony["description"])
-                if st.button("Supprimer", key=f"delpony{pony['id']}"):
-                    execute("DELETE FROM ponies WHERE id=?", (pony["id"],))
+
+                if st.button(
+                    "Désactiver cette fiche",
+                    key=f"disablepony_{pony['id']}"
+                ):
+                    execute(
+                        "UPDATE ponies SET actif=0 WHERE id=?",
+                        (pony["id"],)
+                    )
                     st.rerun()
 
+    # PLANNING
     with tabs[3]:
         st.subheader("Planning hebdomadaire")
-        st.write("Les créneaux créés ici reviennent chaque semaine.")
-        jours = [
-            "Lundi", "Mardi", "Mercredi", "Jeudi",
-            "Vendredi", "Samedi", "Dimanche"
-        ]
+
+        st.write(
+            "Les créneaux créés ici reviennent chaque semaine."
+        )
+
         with st.form("slot_form"):
-            jour = st.selectbox("Jour", jours)
-            heure = st.time_input("Heure du cours", value=time(14, 0))
+            jour = st.selectbox("Jour", JOURS)
+            heure = st.time_input(
+                "Heure du cours",
+                value=time(14, 0)
+            )
             niveau = st.selectbox(
                 "Niveau",
-                ["Baby poney", "Débutant", "Galop 1-2",
-                 "Galop 3-4", "Galop 5-7", "Tous niveaux"]
+                [
+                    "Baby poney", "Débutant",
+                    "Galop 1-2", "Galop 3-4",
+                    "Galop 5-7", "Tous niveaux"
+                ]
             )
             places = st.number_input(
-                "Nombre de places", min_value=1, max_value=20, value=8
+                "Nombre de places",
+                min_value=1,
+                max_value=20,
+                value=8
             )
+
             ok = st.form_submit_button("Ajouter le cours récurrent")
+
             if ok:
                 execute("""
-                INSERT INTO slots (jour,heure,niveau,places)
-                VALUES (?,?,?,?)
-                """, (jour, heure.strftime("%H:%M"), niveau, places))
-                st.success("Créneau ajouté.")
+                INSERT INTO slots (jour, heure, niveau, places)
+                VALUES (?, ?, ?, ?)
+                """, (
+                    jour, heure.strftime("%H:%M"),
+                    niveau, places
+                ))
+                st.success("Cours ajouté.")
                 st.rerun()
 
-        for slot in query("SELECT * FROM slots ORDER BY jour,heure"):
+        slots = query("""
+        SELECT * FROM slots
+        ORDER BY
+        CASE jour
+            WHEN 'Lundi' THEN 1
+            WHEN 'Mardi' THEN 2
+            WHEN 'Mercredi' THEN 3
+            WHEN 'Jeudi' THEN 4
+            WHEN 'Vendredi' THEN 5
+            WHEN 'Samedi' THEN 6
+            ELSE 7
+        END, heure
+        """)
+
+        st.markdown("### Les cours de la semaine")
+
+        for slot in slots:
             with st.container(border=True):
                 st.write(
-                    f"**{slot_label(slot)}** — {slot['places']} places"
+                    f"**{slot_label(slot)}** "
+                    f"— {slot['places']} places "
+                    f"— {'Actif' if slot['actif'] else 'Désactivé'}"
                 )
+
                 col1, col2 = st.columns(2)
+
                 with col1:
-                    if st.button("Annuler ce cours", key=f"cancel{slot['id']}"):
+                    if slot["actif"] and st.button(
+                        "Désactiver",
+                        key=f"disable_slot_{slot['id']}"
+                    ):
                         execute(
                             "UPDATE slots SET actif=0 WHERE id=?",
                             (slot["id"],)
                         )
-                        st.success("Cours désactivé.")
                         st.rerun()
+
                 with col2:
-                    if st.button("Réactiver", key=f"react{slot['id']}"):
+                    if not slot["actif"] and st.button(
+                        "Réactiver",
+                        key=f"activate_slot_{slot['id']}"
+                    ):
                         execute(
                             "UPDATE slots SET actif=1 WHERE id=?",
                             (slot["id"],)
                         )
                         st.rerun()
 
-        st.markdown("### Déplacer un cours")
-        active_slots = query("SELECT * FROM slots WHERE actif=1")
+        # ANNULATION OU DEPLACEMENT PONCTUEL
+        st.divider()
+        st.markdown("### Annuler ou déplacer un cours à une date précise")
+
+        active_slots = query(
+            "SELECT * FROM slots WHERE actif=1 ORDER BY jour,heure"
+        )
+
         if active_slots:
-            selected = st.selectbox(
-                "Cours à déplacer",
-                [s["id"] for s in active_slots],
-                format_func=lambda sid: slot_label(
-                    next(s for s in active_slots if s["id"] == sid)
-                )
+            slot_ids = [s["id"] for s in active_slots]
+
+            selected_slot = st.selectbox(
+                "Cours concerné",
+                slot_ids,
+                format_func=lambda sid: slot_label(get_slot(sid)),
+                key="exception_slot"
             )
-            new_day = st.selectbox("Nouveau jour", jours, key="move_day")
-            new_time = st.time_input("Nouvelle heure", key="move_time")
-            if st.button("Enregistrer le déplacement"):
+
+            date_cours = st.date_input(
+                "Date du cours concerné",
+                min_value=date.today(),
+                key="exception_date"
+            )
+
+            action = st.radio(
+                "Action",
+                ["Annuler uniquement cette séance",
+                 "Déplacer uniquement cette séance"],
+                key="exception_action"
+            )
+
+            nouveau_jour = None
+            nouvelle_heure = None
+
+            if action == "Déplacer uniquement cette séance":
+                nouveau_jour = st.selectbox(
+                    "Nouveau jour",
+                    JOURS,
+                    key="exception_new_day"
+                )
+                nouvelle_heure = st.time_input(
+                    "Nouvelle heure",
+                    value=time(14, 0),
+                    key="exception_new_time"
+                )
+
+            message = st.text_input(
+                "Message à afficher aux familles"
+            )
+
+            if st.button("Enregistrer la modification"):
+                if action.startswith("Annuler"):
+                    action_db = "Annulé"
+                else:
+                    action_db = "Déplacé"
+
                 execute("""
-                UPDATE slots SET jour=?,heure=? WHERE id=?
-                """, (new_day, new_time.strftime("%H:%M"), selected))
-                st.success("Créneau modifié.")
+                INSERT INTO exceptions
+                (slot_id, date_cours, action, nouveau_jour,
+                 nouvelle_heure, message)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    selected_slot,
+                    str(date_cours),
+                    action_db,
+                    nouveau_jour,
+                    nouvelle_heure.strftime("%H:%M")
+                    if nouvelle_heure else None,
+                    message
+                ))
+
+                assigned = query("""
+                SELECT DISTINCT children.family_id
+                FROM assignments
+                JOIN children ON children.id=assignments.child_id
+                WHERE assignments.slot_id=?
+                """, (selected_slot,))
+
+                for item in assigned:
+                    notify(
+                        item["family_id"],
+                        f"Cours du {date_cours} : {action_db}. {message}"
+                    )
+
+                st.success("Modification enregistrée.")
                 st.rerun()
 
+        # AFFECTER LES ELEVES AUX COURS
+        st.divider()
+        st.markdown("### Inscrire un élève à un cours")
+
+        students = query(
+            "SELECT * FROM children ORDER BY prenom"
+        )
+        active_slots = query(
+            "SELECT * FROM slots WHERE actif=1 ORDER BY jour,heure"
+        )
+
+        if students and active_slots:
+            student_id = st.selectbox(
+                "Élève",
+                [s["id"] for s in students],
+                format_func=lambda sid: next(
+                    s["prenom"] for s in students
+                    if s["id"] == sid
+                ),
+                key="assign_student"
+            )
+
+            slot_id = st.selectbox(
+                "Cours",
+                [s["id"] for s in active_slots],
+                format_func=lambda sid: slot_label(get_slot(sid)),
+                key="assign_slot"
+            )
+
+            if st.button("Inscrire au cours"):
+                existing = query("""
+                SELECT id FROM assignments
+                WHERE child_id=? AND slot_id=?
+                """, (student_id, slot_id))
+
+                if existing:
+                    st.warning("Cet élève est déjà inscrit à ce cours.")
+                else:
+                    execute("""
+                    INSERT INTO assignments (child_id, slot_id)
+                    VALUES (?, ?)
+                    """, (student_id, slot_id))
+
+                    notify_child(
+                        student_id,
+                        "Un cours a été ajouté à ton planning."
+                    )
+                    st.success("Élève inscrit.")
+                    st.rerun()
+
+    # DEMANDES DP
     with tabs[4]:
         st.subheader("Demandes de demi-pension")
+
         requests = query("""
-        SELECT dp_requests.*,children.prenom,children.family_id
-        FROM dp_requests JOIN children
-        ON children.id=dp_requests.child_id
+        SELECT dp_requests.*, children.prenom, children.family_id
+        FROM dp_requests
+        JOIN children ON children.id=dp_requests.child_id
         ORDER BY dp_requests.id DESC
         """)
+
         for req in requests:
             with st.container(border=True):
-                st.write(f"**{req['prenom']}** — {req['statut']}")
-                ids = [int(x) for x in req["slot_ids"].split(",") if x]
+                st.subheader(req["prenom"])
+                st.write("Statut :", req["statut"])
+
+                try:
+                    ids = json.loads(req["slot_ids"])
+                except Exception:
+                    ids = []
+
                 for sid in ids:
-                    found = query("SELECT * FROM slots WHERE id=?", (sid,))
-                    if found:
-                        st.write(slot_label(found[0]))
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("Valider la DP", key=f"acceptdp{req['id']}"):
-                        execute(
-                            "UPDATE dp_requests SET statut='Validée' WHERE id=?",
-                            (req["id"],)
-                        )
-                        for sid in ids:
+                    slot = get_slot(sid)
+                    if slot:
+                        st.write(slot_label(slot))
+
+                if req["statut"] == "En attente":
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        if st.button(
+                            "Valider la DP",
+                            key=f"accept_dp_{req['id']}"
+                        ):
+                            for sid in ids:
+                                execute("""
+                                INSERT OR IGNORE INTO assignments
+                                (child_id, slot_id)
+                                VALUES (?, ?)
+                                """, (req["child_id"], sid))
+
                             execute("""
-                            INSERT INTO assignments (child_id,slot_id)
-                            VALUES (?,?)
-                            """, (req["child_id"], sid))
-                        notify(
-                            req["family_id"],
-                            f"La demande de DP de {req['prenom']} a été validée."
-                        )
-                        st.rerun()
-                with c2:
-                    if st.button("Refuser", key=f"refusedp{req['id']}"):
-                        execute(
-                            "UPDATE dp_requests SET statut='Refusée' WHERE id=?",
-                            (req["id"],)
-                        )
-                        notify(
-                            req["family_id"],
-                            f"La demande de DP de {req['prenom']} a été refusée."
-                        )
-                        st.rerun()
+                            UPDATE dp_requests
+                            SET statut='Validée'
+                            WHERE id=?
+                            """, (req["id"],))
 
+                            notify(
+                                req["family_id"],
+                                "La demande de demi-pension a été validée."
+                            )
+                            st.success("Demande validée.")
+                            st.rerun()
+
+                    with c2:
+                        if st.button(
+                            "Refuser",
+                            key=f"refuse_dp_{req['id']}"
+                        ):
+                            execute("""
+                            UPDATE dp_requests
+                            SET statut='Refusée'
+                            WHERE id=?
+                            """, (req["id"],))
+
+                            notify(
+                                req["family_id"],
+                                "La demande de demi-pension a été refusée."
+                            )
+                            st.rerun()
+
+    # ABSENCES
     with tabs[5]:
-        st.subheader("Demandes d'absence")
-        for absence in query("""
-        SELECT absences.*,children.prenom,children.family_id
-        FROM absences JOIN children ON children.id=absences.child_id
-        ORDER BY absences.id DESC
-        """):
-            with st.container(border=True):
-                st.write(
-                    f"**{absence['prenom']}** — {absence['date_absence']}"
-                )
-                st.write(absence["motif"])
-                st.write("Statut :", absence["statut"])
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("Accepter", key=f"acceptabs{absence['id']}"):
-                        execute(
-                            "UPDATE absences SET statut='Acceptée' WHERE id=?",
-                            (absence["id"],)
-                        )
-                        notify(
-                            absence["family_id"],
-                            f"Absence de {absence['prenom']} acceptée."
-                        )
-                        st.rerun()
-                with c2:
-                    if st.button("Refuser", key=f"refuseabs{absence['id']}"):
-                        execute(
-                            "UPDATE absences SET statut='Refusée' WHERE id=?",
-                            (absence["id"],)
-                        )
-                        notify(
-                            absence["family_id"],
-                            f"Absence de {absence['prenom']} refusée."
-                        )
-                        st.rerun()
+        st.subheader("Absences et rattrapages")
 
+        absences = query("""
+        SELECT absences.*, children.prenom, children.family_id
+        FROM absences
+        JOIN children ON children.id=absences.child_id
+        ORDER BY absences.id DESC
+        """)
+
+        for absence in absences:
+            with st.container(border=True):
+                st.subheader(absence["prenom"])
+                st.write(absence["type_demande"])
+                st.write("Date :", absence["date_absence"])
+                st.write("Motif :", absence["motif"])
+                st.write("Statut :", absence["statut"])
+
+                if absence["statut"] == "En attente":
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        if st.button(
+                            "Accepter",
+                            key=f"accept_abs_{absence['id']}"
+                        ):
+                            execute("""
+                            UPDATE absences
+                            SET statut='Acceptée'
+                            WHERE id=?
+                            """, (absence["id"],))
+
+                            notify(
+                                absence["family_id"],
+                                f"{absence['type_demande']} acceptée."
+                            )
+                            st.rerun()
+
+                    with c2:
+                        if st.button(
+                            "Refuser",
+                            key=f"refuse_abs_{absence['id']}"
+                        ):
+                            execute("""
+                            UPDATE absences
+                            SET statut='Refusée'
+                            WHERE id=?
+                            """, (absence["id"],))
+
+                            notify(
+                                absence["family_id"],
+                                f"{absence['type_demande']} refusée."
+                            )
+                            st.rerun()
+
+    # STAGES
     with tabs[6]:
         st.subheader("Créer un stage")
+
         with st.form("create_stage"):
             nom = st.text_input("Nom du stage")
             discipline = st.text_input("Discipline")
             jour = st.date_input("Date du stage")
-            horaire = st.text_input("Horaire", "9h-17h")
+            horaire = st.text_input("Horaires", "9h-17h")
             niveau = st.text_input("Niveau minimum")
             places = st.number_input(
-                "Nombre de places", min_value=1, value=8
+                "Nombre de places",
+                min_value=1,
+                value=8
             )
-            tarif = st.number_input("Tarif (€)", min_value=0.0)
+            tarif = st.number_input(
+                "Tarif (€)",
+                min_value=0.0
+            )
+
             ok = st.form_submit_button("Publier le stage")
-            if ok and nom:
+
+            if ok and nom.strip():
                 execute("""
                 INSERT INTO stages
-                (nom,discipline,date_stage,horaire,niveau,places,tarif)
-                VALUES (?,?,?,?,?,?,?)
+                (nom, discipline, date_stage, horaire,
+                 niveau, places, tarif)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """, (
-                    nom, discipline, str(jour), horaire,
-                    niveau, places, tarif
+                    nom, discipline, str(jour),
+                    horaire, niveau, places, tarif
                 ))
                 st.success("Stage publié.")
                 st.rerun()
-        for stage in query("SELECT * FROM stages ORDER BY date_stage"):
+
+        st.markdown("### Stages publiés")
+
+        for stage in query(
+            "SELECT * FROM stages ORDER BY date_stage"
+        ):
             st.write(
-                f"{stage['nom']} — {stage['date_stage']} — {stage['tarif']} €"
+                f"**{stage['nom']}** — {stage['date_stage']} "
+                f"— {stage['tarif']} €"
             )
 
+    # EVENEMENTS ET CONCOURS
     with tabs[7]:
-        st.subheader("Ajouter un événement")
+        st.subheader("Ajouter un concours ou un événement")
+
         with st.form("create_event"):
-            nom = st.text_input("Nom de l'événement")
+            nom = st.text_input("Nom")
             jour = st.date_input("Date", key="event_date")
             description = st.text_area("Description")
-            ok = st.form_submit_button("Publier l'événement")
-            if ok and nom:
+
+            ok = st.form_submit_button("Publier")
+
+            if ok and nom.strip():
                 execute("""
-                INSERT INTO events (nom,date_event,description)
-                VALUES (?,?,?)
+                INSERT INTO events (nom, date_event, description)
+                VALUES (?, ?, ?)
                 """, (nom, str(jour), description))
                 st.success("Événement publié.")
                 st.rerun()
 
+        st.markdown("### Événements publiés")
+
+        for event in query(
+            "SELECT * FROM events ORDER BY date_event"
+        ):
+            st.write(
+                f"**{event['nom']}** — {event['date_event']}"
+            )
+            st.write(event["description"])
+
+    # ARTICLES
     with tabs[8]:
         st.subheader("Rédiger un article")
+
         with st.form("article_form"):
-            titre = st.text_input("Titre de l'article")
+            titre = st.text_input("Titre")
             contenu = st.text_area("Texte de l'article")
             photo = st.file_uploader(
-                "Ajouter une photo", type=["png", "jpg", "jpeg"]
+                "Photo",
+                type=["png", "jpg", "jpeg"],
+                key="article_photo"
             )
+
             ok = st.form_submit_button("Publier l'article")
-            if ok and titre and contenu:
+
+            if ok and titre.strip() and contenu.strip():
                 execute("""
-                INSERT INTO articles (titre,contenu,photo,date_article)
-                VALUES (?,?,?,?)
+                INSERT INTO articles
+                (titre, contenu, photo, date_article)
+                VALUES (?, ?, ?, ?)
                 """, (
-                    titre, contenu,
+                    titre,
+                    contenu,
                     photo.getvalue() if photo else None,
                     date.today().strftime("%d/%m/%Y")
                 ))
                 st.success("Article publié.")
                 st.rerun()
 
-    with tabs[9]:
-        st.subheader("Réservations de balades")
-        for booking in query(
-            "SELECT * FROM walk_bookings ORDER BY date_balade"
+        st.markdown("### Articles publiés")
+
+        for article in query(
+            "SELECT * FROM articles ORDER BY id DESC"
         ):
             with st.container(border=True):
-                st.write(f"**{booking['enfant']}**")
-                st.write(f"Responsable : {booking['responsable']}")
-                st.write(f"Téléphone : {booking['telephone']}")
-                st.write(f"E-mail : {booking['email']}")
-                st.write(
-                    f"{booking['date_balade']} à {booking['heure']}"
-                )
-                st.write(f"Tarif : {booking['tarif']} €")
+                st.subheader(article["titre"])
+                photo_widget(article["photo"])
+                st.write(article["contenu"])
+                st.caption(article["date_article"])
 
+    # BALADES
+    with tabs[9]:
+        st.subheader("Réservations de balades")
+
+        for booking in query("""
+        SELECT * FROM walk_bookings
+        ORDER BY date_balade, heure
+        """):
+            with st.container(border=True):
+                st.subheader(booking["enfant"])
+                st.write("Responsable :", booking["responsable"])
+                st.write("Téléphone :", booking["telephone"])
+                st.write("E-mail :", booking["email"])
+                st.write(
+                    booking["date_balade"],
+                    "à",
+                    booking["heure"]
+                )
+                st.write("Tarif :", booking["tarif"], "€")
+                st.write("Statut :", booking["statut"])
+
+                if booking["statut"] == "En attente":
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        if st.button(
+                            "Confirmer",
+                            key=f"confirm_walk_{booking['id']}"
+                        ):
+                            execute("""
+                            UPDATE walk_bookings
+                            SET statut='Confirmée'
+                            WHERE id=?
+                            """, (booking["id"],))
+                            st.rerun()
+
+                    with c2:
+                        if st.button(
+                            "Refuser",
+                            key=f"refuse_walk_{booking['id']}"
+                        ):
+                            execute("""
+                            UPDATE walk_bookings
+                            SET statut='Refusée'
+                            WHERE id=?
+                            """, (booking["id"],))
+                            st.rerun()
+
+    # INSCRIPTIONS AUX STAGES
     with tabs[10]:
         st.subheader("Inscriptions aux stages")
-        for reg in query("""
-        SELECT stage_regs.*,stages.nom AS stage
-        FROM stage_regs JOIN stages
-        ON stages.id=stage_regs.stage_id
-        ORDER BY stage_regs.id DESC
-        """):
-            st.write(
-                f"**{reg['nom_enfant']}** — {reg['stage']} — "
-                f"{reg['nom_responsable']} — {reg['telephone']}"
-            )
 
-# =====================================================
-# PREMIERE CREATION DES COMPTES COACHS
-# =====================================================
+        registrations = query("""
+        SELECT stage_regs.*, stages.nom AS stage
+        FROM stage_regs
+        JOIN stages ON stages.id=stage_regs.stage_id
+        ORDER BY stage_regs.id DESC
+        """)
+
+        for reg in registrations:
+            with st.container(border=True):
+                st.write("**", reg["nom_enfant"], "**")
+                st.write("Stage :", reg["stage"])
+                st.write("Responsable :", reg["nom_responsable"])
+                st.write("Téléphone :", reg["telephone"])
+                st.write("E-mail :", reg["email"])
+
+
+# ==========================================================
+# CREATION DES DEUX COMPTES COACHS
+# ==========================================================
 
 def coach_setup():
-    st.subheader("Première création des comptes coachs")
-    st.write("""
-    Cette étape permet de créer les deux comptes coach.
-    Elle ne sera plus nécessaire une fois les comptes créés.
-    """)
+
+    st.subheader("Configuration des comptes coachs")
+
+    st.write(
+        "Crée les deux mots de passe coach. "
+        "Cette opération ne sera nécessaire qu'une seule fois."
+    )
+
     for code, nom in COACH_CODES.items():
-        existing = query("SELECT id FROM coaches WHERE nom=?", (nom,))
+
+        existing = query(
+            "SELECT id FROM coaches WHERE nom=?",
+            (nom,)
+        )
+
         if not existing:
-            st.markdown(f"### {nom}")
             with st.form(f"setup_{nom}"):
+                st.markdown(f"### {nom}")
+
                 password = st.text_input(
-                    f"Créer le mot de passe de {nom}",
-                    type="password"
+                    "Créer un mot de passe",
+                    type="password",
+                    key=f"pass_{nom}"
                 )
+
                 confirm = st.text_input(
                     "Confirmer le mot de passe",
-                    type="password"
+                    type="password",
+                    key=f"confirm_{nom}"
                 )
-                ok = st.form_submit_button(f"Créer {nom}")
+
+                ok = st.form_submit_button(
+                    f"Créer le compte {nom}"
+                )
+
                 if ok:
                     if len(password) < 8:
                         st.error("8 caractères minimum.")
                     elif password != confirm:
                         st.error("Les mots de passe ne correspondent pas.")
                     else:
-                        execute(
-                            "INSERT INTO coaches (nom,password) VALUES (?,?)",
-                            (nom, hash_password(password))
-                        )
-                        st.success(f"Compte {nom} créé.")
+                        execute("""
+                        INSERT INTO coaches (nom, password)
+                        VALUES (?, ?)
+                        """, (nom, hash_password(password)))
+
+                        st.success("Compte créé.")
                         st.rerun()
 
-# =====================================================
+
+# ==========================================================
 # NAVIGATION GENERALE
-# =====================================================
+# ==========================================================
 
 if st.session_state.role == "family":
+
     col1, col2 = st.columns([5, 1])
+
     with col2:
         if st.button("Déconnexion"):
-            st.session_state.clear()
-            st.rerun()
+            logout()
+
     family_page()
 
 elif st.session_state.role == "coach":
+
     col1, col2 = st.columns([5, 1])
+
     with col2:
         if st.button("Déconnexion"):
-            st.session_state.clear()
-            st.rerun()
+            logout()
+
     coach_page()
 
 else:
+
     public_page()
+
     st.divider()
+
     with st.expander("Configuration initiale des comptes coachs"):
         coach_setup()
