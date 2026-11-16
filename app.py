@@ -76,7 +76,16 @@ def init_db():
             nom TEXT, email TEXT, telephone TEXT,
             username TEXT UNIQUE, password TEXT
         )""",
-
+        
+        """CREATE TABLE IF NOT EXISTS weekly_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            semaine_debut TEXT,
+            child_id INTEGER,
+            lesson_id INTEGER,
+            pony_id INTEGER,
+            UNIQUE(semaine_debut, child_id, lesson_id)
+        )""",
+        
         """CREATE TABLE IF NOT EXISTS coaches (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT UNIQUE,
@@ -1002,25 +1011,30 @@ def coach_page():
         "Stages",
         "Événements",
         "Actualités",
-        "Balades"
+        "Balades",
+        "Attributions semaine"
     ])
 
     # ---------------- TABLEAU DE BORD ----------------
 
     with tabs[0]:
+
         c1, c2, c3, c4 = st.columns(4)
+
         c1.metric("Familles", len(rows("SELECT id FROM families")))
         c2.metric("Enfants", len(rows("SELECT id FROM children")))
         c3.metric("Poneys", len(rows("SELECT id FROM ponies")))
         c4.metric("Cours", len(rows("SELECT id FROM lessons")))
 
         st.subheader("Demandes en attente")
+
         st.write(
             "Absences et rattrapages :",
             len(rows(
                 "SELECT id FROM requests WHERE statut='En attente'"
             ))
         )
+
         st.write(
             "Demi-pensions :",
             len(rows(
@@ -1031,35 +1045,44 @@ def coach_page():
     # ---------------- CAVALIERS ----------------
 
     with tabs[1]:
+
         st.subheader("Liste des cavaliers")
 
-        for child in rows(
-            """SELECT children.*, families.nom AS famille
+        for child in rows("""
+            SELECT children.*, families.nom AS famille
             FROM children
             LEFT JOIN families ON families.id=children.family_id
-            ORDER BY prenom"""
-        ):
+            ORDER BY prenom
+        """):
+
             with st.container(border=True):
+
                 st.write(
                     f"**{child['prenom']}** — "
                     f"{child['age']} ans — {child['galop']}"
                 )
+
                 st.write("Famille :", child["famille"])
+
                 if child["photo"]:
                     st.image(child["photo"], width=130)
 
                 ponies = rows(
                     "SELECT id,nom FROM ponies WHERE actif=1 ORDER BY nom"
                 )
+
                 lessons = rows(
                     "SELECT id,jour,heure,niveau FROM lessons ORDER BY jour,heure"
                 )
 
                 if ponies and lessons:
+
                     with st.form(f"assign_{child['id']}"):
+
                         pony_map = {
                             p["nom"]: p["id"] for p in ponies
                         }
+
                         lesson_map = {
                             f"{l['jour']} {l['heure']} ({l['niveau']})": l["id"]
                             for l in lessons
@@ -1070,49 +1093,66 @@ def coach_page():
                             list(pony_map.keys()),
                             key=f"pony_{child['id']}"
                         )
+
                         lesson_name = st.selectbox(
                             "Cours",
                             list(lesson_map.keys()),
                             key=f"lesson_{child['id']}"
                         )
 
-                        ok = st.form_submit_button("Enregistrer l'attribution")
+                        ok = st.form_submit_button(
+                            "Enregistrer l'attribution"
+                        )
 
                         if ok:
-                            execute(
-                                """INSERT INTO assignments
+
+                            execute("""
+                                INSERT INTO assignments
                                 (child_id,pony_id,lesson_id)
-                                VALUES (?,?,?)""",
-                                (
-                                    child["id"],
-                                    pony_map[pony_name],
-                                    lesson_map[lesson_name]
-                                )
-                            )
+                                VALUES (?,?,?)
+                            """, (
+                                child["id"],
+                                pony_map[pony_name],
+                                lesson_map[lesson_name]
+                            ))
+
                             st.success("Poney attribué.")
 
     # ---------------- PONEYS ----------------
 
     with tabs[2]:
+
         st.subheader("Ajouter un poney")
 
         with st.form("add_pony"):
+
             nom = st.text_input("Nom du poney")
-            age = st.number_input("Âge", min_value=0, max_value=50, value=5)
+
+            age = st.number_input(
+                "Âge",
+                min_value=0,
+                max_value=50,
+                value=5
+            )
+
             description = st.text_area("Description et caractère")
             photo = st.text_input("Lien de la photo")
+
             ok = st.form_submit_button("Ajouter le poney")
 
             if ok:
+
                 if nom.strip():
-                    execute(
-                        """INSERT INTO ponies
+
+                    execute("""
+                        INSERT INTO ponies
                         (nom,age,description,photo)
-                        VALUES (?,?,?,?)""",
-                        (nom, age, description, photo)
-                    )
+                        VALUES (?,?,?,?)
+                    """, (nom, age, description, photo))
+
                     st.success("Poney ajouté.")
                     st.rerun()
+
                 else:
                     st.error("Indique le nom.")
 
@@ -1120,55 +1160,84 @@ def coach_page():
         st.subheader("Poneys du club")
 
         for pony in rows("SELECT * FROM ponies ORDER BY nom"):
+
             with st.container(border=True):
+
                 st.write("**" + pony["nom"] + "**")
                 st.write(pony["description"])
+
                 if pony["photo"]:
                     st.image(pony["photo"], width=150)
 
                 if pony["actif"] == 1:
-                    if st.button("Désactiver " + pony["nom"], key=f"off_{pony['id']}"):
+
+                    if st.button(
+                        "Désactiver " + pony["nom"],
+                        key=f"off_{pony['id']}"
+                    ):
+
                         execute(
                             "UPDATE ponies SET actif=0 WHERE id=?",
                             (pony["id"],)
                         )
+
                         st.rerun()
+
                 else:
-                    if st.button("Réactiver " + pony["nom"], key=f"on_{pony['id']}"):
+
+                    if st.button(
+                        "Réactiver " + pony["nom"],
+                        key=f"on_{pony['id']}"
+                    ):
+
                         execute(
                             "UPDATE ponies SET actif=1 WHERE id=?",
                             (pony["id"],)
                         )
+
                         st.rerun()
 
     # ---------------- PLANNING ----------------
 
     with tabs[3]:
+
         st.subheader("Créer un cours hebdomadaire")
 
         with st.form("add_lesson"):
+
             jour = st.selectbox(
                 "Jour",
-                ["Lundi", "Mardi", "Mercredi", "Jeudi",
-                 "Vendredi", "Samedi", "Dimanche"]
+                ["Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"]
             )
+
             heure = st.time_input("Heure")
+
             duree = st.number_input(
-                "Durée en minutes", min_value=15, max_value=240, value=60
+                "Durée en minutes",
+                min_value=15,
+                max_value=240,
+                value=60
             )
+
             niveau = st.text_input("Niveau du cours")
+
             places = st.number_input(
-                "Nombre de places", min_value=1, max_value=30, value=8
+                "Nombre de places",
+                min_value=1,
+                max_value=30,
+                value=8
             )
+
             ok = st.form_submit_button("Ajouter au planning")
 
             if ok:
-                execute(
-                    """INSERT INTO lessons
+
+                execute("""
+                    INSERT INTO lessons
                     (jour,heure,duree,niveau,places)
-                    VALUES (?,?,?,?,?)""",
-                    (jour, str(heure), duree, niveau, places)
-                )
+                    VALUES (?,?,?,?,?)
+                """, (jour, str(heure), duree, niveau, places))
+
                 st.success("Cours ajouté.")
                 st.rerun()
 
@@ -1178,76 +1247,88 @@ def coach_page():
         lessons = rows("SELECT * FROM lessons ORDER BY jour,heure")
 
         for lesson in lessons:
+
             with st.expander(
                 f"{lesson['jour']} — {lesson['heure']} — {lesson['niveau']}"
             ):
+
                 st.write("Durée :", lesson["duree"], "minutes")
                 st.write("Places :", lesson["places"])
 
                 with st.form(f"change_{lesson['id']}"):
+
                     date_cours = st.date_input(
                         "Date du cours concerné",
                         value=date.today(),
                         key=f"date_{lesson['id']}"
                     )
+
                     action = st.selectbox(
                         "Action",
                         ["Annuler ce cours", "Déplacer ce cours"],
                         key=f"action_{lesson['id']}"
                     )
+
                     nouvelle_date = st.date_input(
                         "Nouvelle date (si déplacement)",
                         value=date.today() + timedelta(days=1),
                         key=f"newdate_{lesson['id']}"
                     )
+
                     nouvelle_heure = st.time_input(
                         "Nouvelle heure",
                         key=f"newtime_{lesson['id']}"
                     )
+
                     message = st.text_input(
                         "Message aux familles",
                         key=f"msg_{lesson['id']}"
                     )
+
                     ok = st.form_submit_button("Confirmer")
 
                     if ok:
-                        execute(
-                            """INSERT INTO lesson_changes
+
+                        execute("""
+                            INSERT INTO lesson_changes
                             (lesson_id,date_cours,action,nouvelle_date,
                             nouvelle_heure,message)
-                            VALUES (?,?,?,?,?,?)""",
-                            (
-                                lesson["id"],
-                                str(date_cours),
-                                action,
-                                str(nouvelle_date),
-                                str(nouvelle_heure),
-                                message
-                            )
-                        )
+                            VALUES (?,?,?,?,?,?)
+                        """, (
+                            lesson["id"],
+                            str(date_cours),
+                            action,
+                            str(nouvelle_date),
+                            str(nouvelle_heure),
+                            message
+                        ))
 
-                        assigned_families = rows(
-                            """SELECT DISTINCT children.family_id
+                        assigned_families = rows("""
+                            SELECT DISTINCT children.family_id
                             FROM assignments
-                            JOIN children ON children.id=assignments.child_id
-                            WHERE assignments.lesson_id=?""",
-                            (lesson["id"],)
-                        )
+                            JOIN children
+                            ON children.id=assignments.child_id
+                            WHERE assignments.lesson_id=?
+                        """, (lesson["id"],))
 
                         notification = (
-                            f"Cours du {date_cours} : {action}. "
-                            f"{message}"
+                            f"Cours du {date_cours} : {action}. {message}"
                         )
 
                         if action == "Déplacer ce cours":
+
                             notification += (
-                                f" Nouveau créneau : {nouvelle_date} à {nouvelle_heure}."
+                                f" Nouveau créneau : "
+                                f"{nouvelle_date} à {nouvelle_heure}."
                             )
 
                         for fam in assigned_families:
+
                             if fam["family_id"]:
+
                                 notify_family(
-                                    fam["family_id"], notification
+                                    fam["family_id"],
+                                    notification
                                 )
 
                         st.success("Modification enregistrée.")
@@ -1257,168 +1338,243 @@ def coach_page():
                     "Supprimer ce cours du planning",
                     key=f"delete_lesson_{lesson['id']}"
                 ):
+
                     execute(
                         "DELETE FROM lessons WHERE id=?",
                         (lesson["id"],)
                     )
+
                     st.rerun()
 
         st.caption(
-            "Les cours sont hebdomadaires. Une annulation ou un déplacement "
-            "concerne uniquement la date choisie."
+            "Les cours sont hebdomadaires. Une annulation ou un "
+            "déplacement concerne uniquement la date choisie."
         )
 
     # ---------------- DEMI-PENSION ----------------
 
     with tabs[4]:
+
         st.subheader("Demandes de demi-pension")
 
         for dp in rows(
             "SELECT * FROM dp_requests ORDER BY id DESC"
         ):
+
             child = one(
                 "SELECT prenom FROM children WHERE id=?",
                 (dp["child_id"],)
             )
+
             family = one(
                 "SELECT nom FROM families WHERE id=?",
                 (dp["family_id"],)
             )
 
             with st.container(border=True):
+
                 st.write(
-                    "Enfant :", child["prenom"] if child else "Inconnu"
+                    "Enfant :",
+                    child["prenom"] if child else "Inconnu"
                 )
+
                 st.write(
-                    "Famille :", family["nom"] if family else "Inconnue"
+                    "Famille :",
+                    family["nom"] if family else "Inconnue"
                 )
+
+                st.write(
+                    "Poney ou cheval souhaité :",
+                    dp["poney_souhaite"] or "Non renseigné"
+                )
+
                 st.write("Statut :", dp["statut"])
 
                 try:
+
                     ids = json.loads(dp["courses"])
+
                     for lesson_id in ids:
+
                         lesson = one(
                             "SELECT * FROM lessons WHERE id=?",
                             (lesson_id,)
                         )
+
                         if lesson:
+
                             st.write(
-                                lesson["jour"], lesson["heure"],
+                                lesson["jour"],
+                                lesson["heure"],
                                 lesson["niveau"]
                             )
+
                 except Exception:
+
                     st.write("Détails des cours indisponibles.")
 
                 if dp["statut"] == "En attente":
+
                     a, b = st.columns(2)
-                    if a.button("Valider", key=f"dp_yes_{dp['id']}"):
+
+                    if a.button(
+                        "Valider",
+                        key=f"dp_yes_{dp['id']}"
+                    ):
+
                         execute(
                             "UPDATE dp_requests SET statut='Acceptée' WHERE id=?",
                             (dp["id"],)
                         )
+
                         notify_family(
                             dp["family_id"],
                             "Votre demande de demi-pension a été acceptée."
                         )
+
                         st.rerun()
 
-                    if b.button("Refuser", key=f"dp_no_{dp['id']}"):
+                    if b.button(
+                        "Refuser",
+                        key=f"dp_no_{dp['id']}"
+                    ):
+
                         execute(
                             "UPDATE dp_requests SET statut='Refusée' WHERE id=?",
                             (dp["id"],)
                         )
+
                         notify_family(
                             dp["family_id"],
                             "Votre demande de demi-pension a été refusée."
                         )
+
                         st.rerun()
 
     # ---------------- DEMANDES ----------------
 
     with tabs[5]:
+
         st.subheader("Absences et rattrapages")
 
         for req in rows("SELECT * FROM requests ORDER BY id DESC"):
+
             child = one(
                 "SELECT prenom FROM children WHERE id=?",
                 (req["child_id"],)
             )
 
             with st.container(border=True):
+
                 st.write(
-                    req["type"], " — ",
+                    req["type"],
+                    " — ",
                     child["prenom"] if child else "Enfant inconnu"
                 )
+
                 st.write(req["details"])
                 st.write("Statut :", req["statut"])
 
                 if req["statut"] == "En attente":
+
                     a, b = st.columns(2)
 
-                    if a.button("Accepter", key=f"req_yes_{req['id']}"):
+                    if a.button(
+                        "Accepter",
+                        key=f"req_yes_{req['id']}"
+                    ):
+
                         execute(
                             "UPDATE requests SET statut='Acceptée' WHERE id=?",
                             (req["id"],)
                         )
+
                         notify_family(
                             req["family_id"],
                             "Votre demande de " + req["type"] + " a été acceptée."
                         )
+
                         st.rerun()
 
-                    if b.button("Refuser", key=f"req_no_{req['id']}"):
+                    if b.button(
+                        "Refuser",
+                        key=f"req_no_{req['id']}"
+                    ):
+
                         execute(
                             "UPDATE requests SET statut='Refusée' WHERE id=?",
                             (req["id"],)
                         )
+
                         notify_family(
                             req["family_id"],
                             "Votre demande de " + req["type"] + " a été refusée."
                         )
+
                         st.rerun()
 
     # ---------------- STAGES ----------------
 
     with tabs[6]:
+
         st.subheader("Ajouter un stage")
 
         with st.form("add_stage"):
+
             nom = st.text_input("Nom du stage")
             discipline = st.text_input("Discipline")
             date_stage = st.date_input("Date du stage")
             horaire = st.text_input("Horaires")
             niveau = st.text_input("Niveau minimum")
+
             places = st.number_input(
-                "Nombre de places", min_value=1, value=8
+                "Nombre de places",
+                min_value=1,
+                value=8
             )
+
             tarif = st.number_input("Tarif (€)", min_value=0.0)
+
             ok = st.form_submit_button("Publier le stage")
 
             if ok:
+
                 if nom.strip() and discipline.strip():
-                    execute(
-                        """INSERT INTO stages
+
+                    execute("""
+                        INSERT INTO stages
                         (nom,discipline,date_stage,horaire,niveau,places,tarif)
-                        VALUES (?,?,?,?,?,?,?)""",
-                        (
-                            nom, discipline, str(date_stage),
-                            horaire, niveau, places, tarif
-                        )
-                    )
+                        VALUES (?,?,?,?,?,?,?)
+                    """, (
+                        nom,
+                        discipline,
+                        str(date_stage),
+                        horaire,
+                        niveau,
+                        places,
+                        tarif
+                    ))
+
                     notify_all_families(
                         "Un nouveau stage est disponible : " + nom
                     )
+
                     st.success("Stage publié.")
                     st.rerun()
+
                 else:
                     st.error("Indique le nom et la discipline.")
 
         st.divider()
+
         for stage in rows("SELECT * FROM stages ORDER BY date_stage"):
+
             with st.container(border=True):
+
                 st.write(
                     f"**{stage['nom']}** — {stage['date_stage']}"
                 )
+
                 st.write(stage["discipline"], stage["horaire"])
                 st.write("Places :", stage["places"])
                 st.write("Tarif :", stage["tarif"], "€")
@@ -1427,88 +1583,115 @@ def coach_page():
                     "Supprimer ce stage",
                     key=f"del_stage_{stage['id']}"
                 ):
+
                     execute(
                         "DELETE FROM stages WHERE id=?",
                         (stage["id"],)
                     )
+
                     st.rerun()
 
     # ---------------- EVENEMENTS ----------------
 
     with tabs[7]:
+
         st.subheader("Ajouter un concours ou événement")
 
         with st.form("add_event"):
+
             nom = st.text_input("Nom de l'événement")
             date_event = st.date_input("Date")
             description = st.text_area("Description")
             tarif = st.number_input("Tarif (€)", min_value=0.0)
+
             ok = st.form_submit_button("Publier l'événement")
 
             if ok:
+
                 if nom.strip():
-                    execute(
-                        """INSERT INTO events
+
+                    execute("""
+                        INSERT INTO events
                         (nom,date_event,description,tarif)
-                        VALUES (?,?,?,?)""",
-                        (nom, str(date_event), description, tarif)
-                    )
+                        VALUES (?,?,?,?)
+                    """, (nom, str(date_event), description, tarif))
+
                     notify_all_families(
                         "Nouvel événement : " + nom
                     )
+
                     st.success("Événement publié.")
                     st.rerun()
 
         st.divider()
+
         for event in rows("SELECT * FROM events ORDER BY date_event"):
+
             with st.container(border=True):
+
                 st.write(
                     f"**{event['nom']}** — {event['date_event']}"
                 )
+
                 st.write(event["description"])
+
                 if st.button(
                     "Supprimer",
                     key=f"del_event_{event['id']}"
                 ):
+
                     execute(
                         "DELETE FROM events WHERE id=?",
                         (event["id"],)
                     )
+
                     st.rerun()
 
     # ---------------- ACTUALITES ----------------
 
     with tabs[8]:
+
         st.subheader("Rédiger un article")
 
         with st.form("add_post"):
+
             titre = st.text_input("Titre de l'article")
             contenu = st.text_area("Texte de l'article")
             photo = st.text_input("Lien de la photo (facultatif)")
+
             ok = st.form_submit_button("Publier l'article")
 
             if ok:
+
                 if titre.strip() and contenu.strip():
-                    execute(
-                        """INSERT INTO posts
+
+                    execute("""
+                        INSERT INTO posts
                         (titre,contenu,photo,date_post)
-                        VALUES (?,?,?,?)""",
-                        (
-                            titre, contenu, photo,
-                            date.today().strftime("%d/%m/%Y")
-                        )
-                    )
+                        VALUES (?,?,?,?)
+                    """, (
+                        titre,
+                        contenu,
+                        photo,
+                        date.today().strftime("%d/%m/%Y")
+                    ))
+
                     notify_all_families(
                         "Nouvelle actualité : " + titre
                     )
+
                     st.success("Article publié.")
                     st.rerun()
 
         st.divider()
+
         for post in rows("SELECT * FROM posts ORDER BY id DESC"):
+
             with st.container(border=True):
+
                 st.write("**" + post["titre"] + "**")
                 st.write(post["contenu"])
+
                 if post["photo"]:
                     st.image(post["photo"], width=200)
 
@@ -1516,45 +1699,203 @@ def coach_page():
                     "Supprimer l'article",
                     key=f"del_post_{post['id']}"
                 ):
+
                     execute(
                         "DELETE FROM posts WHERE id=?",
                         (post["id"],)
                     )
+
                     st.rerun()
 
     # ---------------- BALADES ----------------
 
     with tabs[9]:
+
         st.subheader("Demandes de balades")
 
         for ride in rows("SELECT * FROM rides ORDER BY id DESC"):
+
             with st.container(border=True):
+
                 st.write("Responsable :", ride["nom_responsable"])
                 st.write("Enfant :", ride["prenom_enfant"])
                 st.write("Téléphone :", ride["telephone"])
                 st.write("Mail :", ride["email"])
+
                 st.write(
-                    ride["date_balade"], "à", ride["horaire"]
+                    ride["date_balade"],
+                    "à",
+                    ride["horaire"]
                 )
+
                 st.write("Tarif :", ride["tarif"], "€")
                 st.write("Statut :", ride["statut"])
 
                 if ride["statut"] == "En attente":
+
                     a, b = st.columns(2)
 
-                    if a.button("Confirmer", key=f"ride_yes_{ride['id']}"):
+                    if a.button(
+                        "Confirmer",
+                        key=f"ride_yes_{ride['id']}"
+                    ):
+
                         execute(
                             "UPDATE rides SET statut='Confirmée' WHERE id=?",
                             (ride["id"],)
                         )
+
                         st.rerun()
 
-                    if b.button("Refuser", key=f"ride_no_{ride['id']}"):
+                    if b.button(
+                        "Refuser",
+                        key=f"ride_no_{ride['id']}"
+                    ):
+
                         execute(
                             "UPDATE rides SET statut='Refusée' WHERE id=?",
                             (ride["id"],)
                         )
+
                         st.rerun()
+
+    # ---------------- ATTRIBUTIONS SEMAINE ----------------
+
+    with tabs[10]:
+
+        st.subheader("Attributions des poneys par semaine")
+
+        semaine = st.date_input(
+            "Choisir une date dans la semaine",
+            value=date.today(),
+            key="choix_semaine_attributions"
+        )
+
+        lundi = semaine - timedelta(days=semaine.weekday())
+        semaine_debut = str(lundi)
+
+        st.info(
+            f"Attributions de la semaine du {lundi.strftime('%d/%m/%Y')}"
+        )
+
+        lessons = rows("""
+            SELECT * FROM lessons
+            WHERE jour IN ('Mardi', 'Mercredi', 'Jeudi',
+                           'Vendredi', 'Samedi')
+            ORDER BY
+                CASE jour
+                    WHEN 'Mardi' THEN 1
+                    WHEN 'Mercredi' THEN 2
+                    WHEN 'Jeudi' THEN 3
+                    WHEN 'Vendredi' THEN 4
+                    WHEN 'Samedi' THEN 5
+                END,
+                heure
+        """)
+
+        children = rows(
+            "SELECT * FROM children ORDER BY prenom"
+        )
+
+        ponies = rows(
+            "SELECT * FROM ponies WHERE actif=1 ORDER BY nom"
+        )
+
+        if not lessons:
+
+            st.warning("Aucun cours du mardi au samedi n'est enregistré.")
+
+        elif not children:
+
+            st.warning("Aucun cavalier enregistré.")
+
+        elif not ponies:
+
+            st.warning("Aucun poney actif enregistré.")
+
+        else:
+
+            child_map = {
+                f"{c['prenom']} (n°{c['id']})": c["id"]
+                for c in children
+            }
+
+            pony_map = {
+                p["nom"]: p["id"] for p in ponies
+            }
+
+            for lesson in lessons:
+
+                with st.expander(
+                    f"{lesson['jour']} — {lesson['heure']} — {lesson['niveau']}"
+                ):
+
+                    st.write("Cavaliers et poneys de ce cours :")
+
+                    inscriptions = rows("""
+                        SELECT weekly_assignments.*,
+                               children.prenom,
+                               ponies.nom AS poney
+                        FROM weekly_assignments
+                        JOIN children
+                            ON children.id=weekly_assignments.child_id
+                        JOIN ponies
+                            ON ponies.id=weekly_assignments.pony_id
+                        WHERE semaine_debut=? AND lesson_id=?
+                        ORDER BY children.prenom
+                    """, (semaine_debut, lesson["id"]))
+
+                    if inscriptions:
+
+                        for inscription in inscriptions:
+
+                            st.write(
+                                f"• {inscription['prenom']} — "
+                                f"{inscription['poney']}"
+                            )
+
+                    else:
+
+                        st.info("Aucune attribution pour cette semaine.")
+
+                    st.divider()
+                    st.write("Ajouter ou modifier une attribution")
+
+                    with st.form(
+                        f"weekly_{semaine_debut}_{lesson['id']}"
+                    ):
+
+                        child_name = st.selectbox(
+                            "Cavalier",
+                            list(child_map.keys())
+                        )
+
+                        pony_name = st.selectbox(
+                            "Poney ou cheval",
+                            list(pony_map.keys())
+                        )
+
+                        ok = st.form_submit_button(
+                            "Enregistrer l'attribution"
+                        )
+
+                        if ok:
+
+                            execute("""
+                                INSERT INTO weekly_assignments
+                                (semaine_debut, child_id, pony_id, lesson_id)
+                                VALUES (?, ?, ?, ?)
+                                ON CONFLICT(semaine_debut, child_id, lesson_id)
+                                DO UPDATE SET pony_id=excluded.pony_id
+                            """, (
+                                semaine_debut,
+                                child_map[child_name],
+                                pony_map[pony_name],
+                                lesson["id"]
+                            ))
+
+                            st.success("Attribution enregistrée.")
+                            st.rerun()
 
 
 # =========================================================
