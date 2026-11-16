@@ -126,7 +126,7 @@ def init_db():
             poney_souhaite TEXT DEFAULT '',
             statut TEXT DEFAULT 'En attente'
         )""",# Ajouter la colonne du poney souhaité si elle n'existe pas
-          columns = [
+            columns = [
     row[1] for row in db.execute(
         "PRAGMA table_info(dp_requests)"
     ).fetchall()
