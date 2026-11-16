@@ -1048,7 +1048,7 @@ def coach_page():
         "Balades",
         "Attributions semaine",
         "Gestion équidés"
-    ])       
+        "Heures des équidés"    ])       
 
     # ---------------- TABLEAU DE BORD ----------------
 
@@ -1796,141 +1796,72 @@ def coach_page():
 
     # ---------------- ATTRIBUTIONS SEMAINE ----------------
 
-    with tabs[10]:
+    with tabs[10]:        
+        import html
 
-        st.subheader("Attributions des poneys par semaine")
-
-        semaine = st.date_input(
-            "Choisir une date dans la semaine",
-            value=date.today(),
-            key="choix_semaine_attributions"
-        )
-
-        lundi = semaine - timedelta(days=semaine.weekday())
-        semaine_debut = str(lundi)
-
-        st.info(
-            f"Attributions de la semaine du {lundi.strftime('%d/%m/%Y')}"
-        )
-
-        lessons = rows("""
-            SELECT * FROM lessons
-            WHERE jour IN ('Mardi', 'Mercredi', 'Jeudi',
-                           'Vendredi', 'Samedi')
-            ORDER BY
-                CASE jour
-                    WHEN 'Mardi' THEN 1
-                    WHEN 'Mercredi' THEN 2
-                    WHEN 'Jeudi' THEN 3
-                    WHEN 'Vendredi' THEN 4
-                    WHEN 'Samedi' THEN 5
-                END,
-                heure
-        """)
-
-        children = rows(
-            "SELECT * FROM children ORDER BY prenom"
-        )
-
-        ponies = rows(
-            "SELECT * FROM ponies WHERE actif=1 ORDER BY nom"
-        )
-
-        if not lessons:
-
-            st.warning("Aucun cours du mardi au samedi n'est enregistré.")
-
-        elif not children:
-
-            st.warning("Aucun cavalier enregistré.")
-
-        elif not ponies:
-
-            st.warning("Aucun poney actif enregistré.")
-
-        else:
-
-            child_map = {
-                f"{c['prenom']} (n°{c['id']})": c["id"]
-                for c in children
+        planning_html = [
+            "<html><head><meta charset='utf-8'>",
+            "<title>Planning AC Équitation</title>",
+            """<style>
+            body { font-family: Arial; padding: 20px; }
+            h1 { text-align: center; }
+            table { width: 100%; border-collapse: collapse;
+                    margin-bottom: 20px; }
+            th, td { border: 1px solid black; padding: 8px; }
+            th { background: #e5eadf; }
+            @media print {
+                button { display: none; }
             }
+            </style></head><body>""",
+            "<h1>AC Équitation</h1>",
+            f"<h2>Planning semaine du {semaine}</h2>"
+        ]
 
-            pony_map = {
-                p["nom"]: p["id"] for p in ponies
-            }
+        for jour in jours:
+            planning_html.append(f"<h2>{jour}</h2>")
 
             for lesson in lessons:
+                if lesson["jour"] != jour:
+                    continue
 
-                with st.expander(
-                    f"{lesson['jour']} — {lesson['heure']} — {lesson['niveau']}"
+                planning_html.append(
+                    f"<h3>{html.escape(str(lesson['heure']))} "
+                    f"- {html.escape(str(lesson['niveau']))}</h3>"
+                )
+
+                planning_html.append(
+                    "<table><tr><th>Cavalier</th>"
+                    "<th>Poney / Cheval</th></tr>"
+                )
+
+                for r in rows(
+                    """SELECT children.prenom, ponies.nom
+                    FROM pony_assignments
+                    JOIN children ON children.id=pony_assignments.child_id
+                    LEFT JOIN ponies ON ponies.id=pony_assignments.pony_id
+                    WHERE pony_assignments.lesson_id=?
+                    AND pony_assignments.semaine=?
+                    ORDER BY children.prenom""",
+                    (lesson["id"], semaine)
                 ):
+                    planning_html.append(
+                        "<tr><td>" +
+                        html.escape(str(r["prenom"])) +
+                        "</td><td>" +
+                        html.escape(str(r["nom"] or "Non attribué")) +
+                        "</td></tr>"
+                    )
 
-                    st.write("Cavaliers et poneys de ce cours :")
+                planning_html.append("</table>")
 
-                    inscriptions = rows("""
-                        SELECT weekly_assignments.*,
-                               children.prenom,
-                               ponies.nom AS poney
-                        FROM weekly_assignments
-                        JOIN children
-                            ON children.id=weekly_assignments.child_id
-                        JOIN ponies
-                            ON ponies.id=weekly_assignments.pony_id
-                        WHERE semaine_debut=? AND lesson_id=?
-                        ORDER BY children.prenom
-                    """, (semaine_debut, lesson["id"]))
+        planning_html.append("</body></html>")
 
-                    if inscriptions:
-
-                        for inscription in inscriptions:
-
-                            st.write(
-                                f"• {inscription['prenom']} — "
-                                f"{inscription['poney']}"
-                            )
-
-                    else:
-
-                        st.info("Aucune attribution pour cette semaine.")
-
-                    st.divider()
-                    st.write("Ajouter ou modifier une attribution")
-
-                    with st.form(
-                        f"weekly_{semaine_debut}_{lesson['id']}"
-                    ):
-
-                        child_name = st.selectbox(
-                            "Cavalier",
-                            list(child_map.keys())
-                        )
-
-                        pony_name = st.selectbox(
-                            "Poney ou cheval",
-                            list(pony_map.keys())
-                        )
-
-                        ok = st.form_submit_button(
-                            "Enregistrer l'attribution"
-                        )
-
-                        if ok:
-
-                            execute("""
-                                INSERT INTO weekly_assignments
-                                (semaine_debut, child_id, pony_id, lesson_id)
-                                VALUES (?, ?, ?, ?)
-                                ON CONFLICT(semaine_debut, child_id, lesson_id)
-                                DO UPDATE SET pony_id=excluded.pony_id
-                            """, (
-                                semaine_debut,
-                                child_map[child_name],
-                                pony_map[pony_name],
-                                lesson["id"]
-                            ))
-
-                            st.success("Attribution enregistrée.")
-                            st.rerun()
+        st.download_button(
+            "Télécharger le planning imprimable",
+            data="".join(planning_html),
+            file_name=f"planning_AC_equitation_{semaine}.html",
+            mime="text/html"
+        )
     # ---------------- GESTION EQUIDES ----------------
 
     with tabs[11]:
@@ -1975,6 +1906,101 @@ def coach_page():
 
                     st.success("Équidé supprimé.")
                     st.rerun()
+                    
+    # ---------------- HEURES DES EQUIDES ----------------
+
+    with tabs[12]:
+        st.subheader("Suivi des heures des poneys et chevaux")
+
+        semaines = rows("""
+            SELECT DISTINCT semaine
+            FROM pony_assignments
+            WHERE semaine IS NOT NULL AND semaine != ''
+            ORDER BY semaine DESC
+        """)
+
+        semaines_disponibles = [
+            s["semaine"] for s in semaines
+        ]
+
+        if semaines_disponibles:
+
+            semaine_choisie = st.selectbox(
+                "Choisir la semaine",
+                semaines_disponibles
+            )
+
+            heures = rows("""
+                SELECT
+                    p.nom AS equide,
+                    COUNT(pa.id) AS nombre_cours,
+                    SUM(COALESCE(l.duree, 0)) AS minutes
+                FROM pony_assignments pa
+                JOIN ponies p ON p.id = pa.pony_id
+                JOIN lessons l ON l.id = pa.lesson_id
+                WHERE pa.semaine = ?
+                GROUP BY p.id, p.nom
+                ORDER BY p.nom
+            """, (semaine_choisie,))
+
+            if heures:
+
+                total_minutes = sum(
+                    h["minutes"] or 0 for h in heures
+                )
+
+                st.metric(
+                    "Total des heures de la semaine",
+                    f"{total_minutes / 60:.2f} h"
+                )
+
+                st.divider()
+
+                st.subheader("Détail par équidé")
+
+                for h in heures:
+                    minutes = h["minutes"] or 0
+
+                    st.write(
+                        f"**{h['equide']}** : "
+                        f"{minutes / 60:.2f} heures — "
+                        f"{h['nombre_cours']} cours"
+                    )
+
+                # Création du fichier CSV
+                import csv
+                import io
+
+                fichier = io.StringIO()
+                writer = csv.writer(fichier, delimiter=";")
+
+                writer.writerow([
+                    "Equidé",
+                    "Nombre de cours",
+                    "Nombre d'heures"
+                ])
+
+                for h in heures:
+                    writer.writerow([
+                        h["equide"],
+                        h["nombre_cours"],
+                        round((h["minutes"] or 0) / 60, 2)
+                    ])
+
+                st.download_button(
+                    label="Télécharger les heures de la semaine",
+                    data="\ufeff" + fichier.getvalue(),
+                    file_name=f"heures_equides_{semaine_choisie}.csv",
+                    mime="text/csv"
+                )
+
+            else:
+                st.info("Aucune heure enregistrée cette semaine.")
+
+        else:
+            st.info(
+                "Aucune attribution enregistrée pour le moment."
+            )
 # =========================================================
 # CREATION DES COMPTES COACHS
 # =========================================================
