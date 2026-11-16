@@ -758,7 +758,17 @@ def family_page():
                     "Enfant concerné",
                     list(child_names.keys())
                 )
+                pony_rows = rows("SELECT nom FROM ponies ORDER BY nom")
+pony_names = [p["nom"] for p in pony_rows]
 
+if pony_names:
+    poney_souhaite = st.selectbox(
+        "Poney ou cheval souhaité pour la DP",
+        pony_names
+    )
+else:
+    poney_souhaite = ""
+    st.warning("Aucun poney n'est encore enregistré.")
                 lesson_options = {
                     f"{l['jour']} - {l['heure']} - {l['niveau']}": l["id"]
                     for l in lessons
