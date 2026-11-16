@@ -1931,13 +1931,50 @@ def coach_page():
 
                             st.success("Attribution enregistrée.")
                             st.rerun()
- # ---------------- GESTION EQUIDES ----------------
+    # ---------------- GESTION EQUIDES ----------------
 
     with tabs[11]:
         st.subheader("Gestion des chevaux et poneys")
 
-        # Ton code de gestion des équidés ici
+        equides = rows("SELECT * FROM ponies ORDER BY nom")
 
+        if not equides:
+            st.info("Aucun équidé enregistré.")
+
+        for equide in equides:
+            with st.container(border=True):
+
+                st.write("### " + equide["nom"])
+
+                if equide["photo"]:
+                    st.image(equide["photo"], width=150)
+
+                st.write("Âge :", equide["age"], "ans")
+                st.write("Description :", equide["description"])
+
+                if st.button(
+                    "Supprimer " + equide["nom"],
+                    key=f"delete_equide_{equide['id']}"
+                ):
+                    # Supprimer ses anciennes attributions
+                    execute(
+                        "DELETE FROM assignments WHERE pony_id=?",
+                        (equide["id"],)
+                    )
+
+                    execute(
+                        "DELETE FROM pony_assignments WHERE pony_id=?",
+                        (equide["id"],)
+                    )
+
+                    # Supprimer l'équidé
+                    execute(
+                        "DELETE FROM ponies WHERE id=?",
+                        (equide["id"],)
+                    )
+
+                    st.success("Équidé supprimé.")
+                    st.rerun()
 # =========================================================
 # CREATION DES COMPTES COACHS
 # =========================================================
