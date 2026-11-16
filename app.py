@@ -769,7 +769,7 @@ if pony_names:
 else:
     poney_souhaite = ""
     st.warning("Aucun poney n'est encore enregistré.")
-                    lesson_options = {
+lesson_options = {
                     f"{l['jour']} - {l['heure']} - {l['niveau']}": l["id"]
                     for l in lessons
                 }
