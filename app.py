@@ -1796,8 +1796,18 @@ def coach_page():
 
     # ---------------- ATTRIBUTIONS SEMAINE ----------------
 
-    with tabs[10]:        
-        import html
+    with tabs[10]:
+        jours = [
+            "Mardi",
+            "Mercredi",
+            "Jeudi",
+            "Vendredi",
+            "Samedi"
+        ]
+
+        lessons = rows(
+            "SELECT * FROM lessons ORDER BY heure"
+        )        import html
 
         date_choisie = st.date_input(
             "Choisir la semaine",
