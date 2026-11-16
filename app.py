@@ -798,16 +798,18 @@ else:
                                 lesson_options[x] for x in selected
                             ]
                             execute(
-                                """INSERT INTO dp_requests
-                                (family_id,child_id,courses)
-                                VALUES (?,?,?)""",
-                                (
-                                    family_id,
-                                    child_names[child_name],
-                                    json.dumps(course_ids)
-                                )
-                            )
-                            st.success(
+    """
+    INSERT INTO dp_requests
+    (family_id, child_id, courses, poney_souhaite)
+    VALUES (?, ?, ?, ?)
+    """,
+    (
+        family_id,
+        child_names[child_name],
+        json.dumps(course_ids),
+        poney_souhaite
+    )
+)                            st.success(
                                 "Demande envoyée. Elle doit être validée par un coach."
                             )
         else:
@@ -818,7 +820,10 @@ else:
             (family_id,)
         ):
             st.write("Demande de DP :", dp["statut"])
-
+            st.write(
+    "Poney ou cheval souhaité :",
+    dp["poney_souhaite"] or "Non renseigné"
+)
     # ---------------- STAGES ET EVENEMENTS ----------------
 
     with tabs[5]:
