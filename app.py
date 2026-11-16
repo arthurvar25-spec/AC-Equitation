@@ -774,7 +774,7 @@ lesson_options = {
                     for l in lessons
                 }
 
-                selected = st.multiselect(
+selected = st.multiselect(
                     "Choisissez les 3 cours de la semaine",
                     list(lesson_options.keys())
                 )
