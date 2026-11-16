@@ -1932,7 +1932,7 @@ def coach_page():
                     
     # ---------------- HEURES DES EQUIDES ----------------
 
-    with tabs[12]:
+    with tabs[11]:
         st.subheader("Suivi des heures des poneys et chevaux")
 
         semaines = rows("""
