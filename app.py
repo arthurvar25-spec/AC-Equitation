@@ -813,7 +813,7 @@ if ok:
                             st.success(
                                 "Demande envoyée. Elle doit être validée par un coach."
                             )
-        else:
+                       else:
             st.info("Il faut un enfant et des cours publiés.")
 
         for dp in rows(
