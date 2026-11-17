@@ -19,34 +19,109 @@ st.set_page_config(
 
 DB = "ac_equitation.db"
 
-# -------------------- DESIGN --------------------
+
+# -------------------- DESIGN AC EQUITATION --------------------
 
 st.markdown("""
 <style>
 .stApp {
-    background-color: #f7f6f0;
+    background: #F3F7FC;
+    color: #20364D;
 }
+
+/* Titres */
 h1, h2, h3 {
-    color: #425747;
+    color: #174F83 !important;
+    font-weight: 750;
 }
+
+/* Barre latérale */
 section[data-testid="stSidebar"] {
-    background-color: #e9ede4;
+    background: #E5EFFA;
+    border-right: 1px solid #D0E0F1;
 }
-div.stButton > button {
-    background-color: #607a62;
+
+/* Boutons */
+.stButton > button,
+.stFormSubmitButton > button {
+    background: #1768AC;
     color: white;
-    border-radius: 10px;
     border: none;
+    border-radius: 12px;
+    padding: 10px 18px;
+    font-weight: 600;
 }
-div.stButton > button:hover {
-    background-color: #425747;
+
+.stButton > button:hover,
+.stFormSubmitButton > button:hover {
+    background: #104B80;
     color: white;
 }
-div[data-testid="stForm"] {
-    background-color: white;
-    padding: 18px;
-    border-radius: 12px;
+
+/* Cartes */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: white;
+    border: 1px solid #DCE8F4;
+    border-radius: 16px;
+    padding: 12px;
 }
+
+/* Formulaires */
+div[data-testid="stForm"] {
+    background: white;
+    border: 1px solid #DCE8F4;
+    border-radius: 16px;
+    padding: 20px;
+}
+
+/* Onglets du coach */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 8px;
+    background: #E5EFFA;
+    padding: 9px;
+    border-radius: 14px;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background: white;
+    color: #174F83;
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-weight: 600;
+}
+
+.stTabs [aria-selected="true"] {
+    background: #1768AC !important;
+    color: white !important;
+}
+
+/* Indicateurs */
+div[data-testid="stMetric"] {
+    background: white;
+    border: 1px solid #DCE8F4;
+    border-radius: 14px;
+    padding: 16px;
+}
+
+/* Navigation publique */
+div[data-testid="stRadio"] > div {
+    gap: 8px;
+}
+
+div[data-testid="stRadio"] label {
+    background: white;
+    border: 1px solid #D4E3F2;
+    border-radius: 10px;
+    padding: 9px 15px;
+    color: #174F83;
+    font-weight: 600;
+}
+
+/* Séparateurs */
+hr {
+    border-color: #DCE8F4;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
