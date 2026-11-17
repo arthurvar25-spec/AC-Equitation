@@ -1083,6 +1083,68 @@ def coach_page():
     with tabs[1]:
 
         st.subheader("Liste des cavaliers")
+        
+        st.subheader("Ajouter un cavalier")
+
+        families = rows(
+            "SELECT id, nom FROM families ORDER BY nom"
+        )
+
+        if families:
+            family_options = {
+                f["nom"] + " (ID " + str(f["id"]) + ")": f["id"]
+                for f in families
+            }
+
+            with st.form("ajouter_cavalier_coach"):
+                famille = st.selectbox(
+                    "Famille",
+                    list(family_options.keys())
+                )
+
+                prenom = st.text_input("Prénom du cavalier")
+                age = st.number_input(
+                    "Âge",
+                    min_value=2,
+                    max_value=99,
+                    value=8
+                )
+                galop = st.selectbox(
+                    "Niveau",
+                    ["Débutant", "Galop 1", "Galop 2",
+                     "Galop 3", "Galop 4", "Galop 5",
+                     "Galop 6", "Galop 7"]
+                )
+                photo = st.text_input("Lien de la photo (facultatif)")
+
+                ajouter = st.form_submit_button(
+                    "Ajouter le cavalier"
+                )
+
+                if ajouter:
+                    if prenom.strip():
+                        execute(
+                            """INSERT INTO children
+                            (family_id, prenom, age, galop, photo)
+                            VALUES (?, ?, ?, ?, ?)""",
+                            (
+                                family_options[famille],
+                                prenom.strip(),
+                                age,
+                                galop,
+                                photo
+                            )
+                        )
+                        st.success("Cavalier ajouté !")
+                        st.rerun()
+                    else:
+                        st.error("Indique le prénom.")
+        else:
+            st.warning(
+                "Il faut d'abord créer une famille."
+            )
+
+        st.divider()
 
         for child in rows("""
             SELECT children.*, families.nom AS famille
