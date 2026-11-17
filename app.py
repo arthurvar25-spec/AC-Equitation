@@ -1280,7 +1280,7 @@ def coach_page():
                             list(lesson_map.keys()),
                             key=f"lesson_{child['id']}"
                         )
-                         autorisation_exceptionnelle = st.checkbox(
+                        autorisation_exceptionnelle = st.checkbox(
                             "Autoriser exceptionnellement un autre cavalier "
                             "à monter ce cheval en pension complète"
 )                        
