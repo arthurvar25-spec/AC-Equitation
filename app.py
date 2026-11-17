@@ -1297,7 +1297,7 @@ def coach_page():
         )
         st.success("Cavalier ajouté !")
         st.rerun()
-                   else:
+                    else:
                         st.error("Indique le prénom et le nom.")
     else:
             st.warning(
