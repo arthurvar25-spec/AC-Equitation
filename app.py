@@ -1262,6 +1262,7 @@ def coach_page():
                 )
 
                 prenom = st.text_input("Prénom du cavalier")
+                nom = st.text_input("Nom de famille du cavalier")                
                 age = st.number_input(
                     "Âge",
                     min_value=2,
@@ -1279,26 +1280,26 @@ def coach_page():
                 ajouter = st.form_submit_button(
                     "Ajouter le cavalier"
                 )
-
-                if ajouter:
-                    if prenom.strip():
-                        execute(
-                            """INSERT INTO children
-                            (family_id, prenom, age, galop, photo)
-                            VALUES (?, ?, ?, ?, ?)""",
-                            (
-                                family_options[famille],
-                                prenom.strip(),
-                                age,
-                                galop,
-                                photo
-                            )
-                        )
-                        st.success("Cavalier ajouté !")
+        if ajouter:
+    if prenom.strip() and nom.strip():
+        execute(
+            """INSERT INTO children
+            (family_id, prenom, nom, age, galop, photo)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                family_options[famille],
+                prenom.strip(),
+                nom.strip(),
+                age,
+                galop,
+                photo
+            )
+        )
+        st.success("Cavalier ajouté !")
                         st.rerun()
                     else:
-                        st.error("Indique le prénom.")
-        else:
+                        st.error("Indique le prénom et le nom.")
+    else:
             st.warning(
                 "Il faut d'abord créer une famille."
             )
@@ -1875,6 +1876,36 @@ def coach_page():
 
                     st.rerun()
 
+        st.divider()
+        st.subheader("📋 Liste des inscriptions aux stages")
+
+        inscriptions = rows("""
+            SELECT registrations.id,
+                   children.prenom,
+                   children.nom AS nom_cavalier,
+                   families.nom AS famille,
+                   stages.nom AS stage,
+                   stages.date_stage
+            FROM registrations
+            JOIN children ON children.id = registrations.child_id
+            LEFT JOIN families ON families.id = registrations.family_id
+            JOIN stages ON stages.id = registrations.item_id
+            WHERE registrations.type = 'stage'
+            ORDER BY stages.date_stage, children.prenom
+        """)
+
+        if not inscriptions:
+            st.info("Aucune inscription pour le moment.")
+
+        for inscription in inscriptions:
+            with st.container(border=True):
+                st.write(
+                    "**" + inscription["prenom"] + " " +
+                    (inscription["nom_cavalier"] or "") + "**"
+                )
+                st.write("Famille :", inscription["famille"] or "Inconnue")
+                st.write("Stage :", inscription["stage"])
+                st.write("Date :", inscription["date_stage"])
     # ---------------- EVENEMENTS ----------------
 
     with tabs[7]:
@@ -2178,101 +2209,150 @@ def coach_page():
                     st.success("Équidé supprimé.")
                     st.rerun()
                     
+    
     # ---------------- HEURES DES EQUIDES ----------------
 
-    with tabs[11]:
-        st.subheader("Suivi des heures des poneys et chevaux")
+    with tabs[12]:
+        st.header("⏱️ Heures des équidés")
 
-        semaines = rows("""
-            SELECT DISTINCT semaine
-            FROM pony_assignments
-            WHERE semaine IS NOT NULL AND semaine != ''
-            ORDER BY semaine DESC
+        heures = rows("""
+            SELECT
+                ponies.nom AS equide,
+                COUNT(assignments.id) AS nombre_cours,
+                SUM(COALESCE(lessons.duree, 0)) AS minutes
+            FROM ponies
+            LEFT JOIN assignments
+                ON assignments.pony_id = ponies.id
+            LEFT JOIN lessons
+                ON lessons.id = assignments.lesson_id
+            GROUP BY ponies.id, ponies.nom
+            ORDER BY ponies.nom
         """)
 
-        semaines_disponibles = [
-            s["semaine"] for s in semaines
-        ]
+        if not heures:
+            st.info("Aucun équidé enregistré.")
 
-        if semaines_disponibles:
+        total_minutes = sum(h["minutes"] or 0 for h in heures)
 
-            semaine_choisie = st.selectbox(
-                "Choisir la semaine",
-                semaines_disponibles
+        st.metric(
+            "Total des heures attribuées",
+            f"{total_minutes / 60:.2f} h"
+        )
+
+        st.divider()
+
+        for h in heures:
+            minutes = h["minutes"] or 0
+            st.write(
+                f"**{h['equide']}** : "
+                f"{minutes / 60:.2f} heures — "
+                f"{h['nombre_cours']} cours"
             )
+            
+    
+    # ---------------- PENSIONS COMPLETES ----------------
 
-            heures = rows("""
-                SELECT
-                    p.nom AS equide,
-                    COUNT(pa.id) AS nombre_cours,
-                    SUM(COALESCE(l.duree, 0)) AS minutes
-                FROM pony_assignments pa
-                JOIN ponies p ON p.id = pa.pony_id
-                JOIN lessons l ON l.id = pa.lesson_id
-                WHERE pa.semaine = ?
-                GROUP BY p.id, p.nom
-                ORDER BY p.nom
-            """, (semaine_choisie,))
+    with tabs[13]:
+        st.header("🐴 Gestion des pensions complètes")
 
-            if heures:
+        enfants = rows(
+            "SELECT id, prenom, nom FROM children ORDER BY prenom"
+        )
+        equides = rows(
+            "SELECT id, nom FROM ponies WHERE actif=1 ORDER BY nom"
+        )
 
-                total_minutes = sum(
-                    h["minutes"] or 0 for h in heures
+        st.subheader("Créer un contrat")
+
+        if enfants and equides:
+            enfant_options = {
+                f"{e['prenom']} {e['nom'] or ''} (ID {e['id']})": e["id"]
+                for e in enfants
+            }
+            equide_options = {
+                e["nom"]: e["id"] for e in equides
+            }
+
+            with st.form("creer_pension_complete"):
+                enfant = st.selectbox(
+                    "Cavalier",
+                    list(enfant_options.keys())
+                )
+                equide = st.selectbox(
+                    "Cheval ou poney",
+                    list(equide_options.keys())
+                )
+                debut = st.date_input("Date de début")
+                fin = st.date_input("Date de fin")
+                tarif = st.number_input(
+                    "Tarif (€)",
+                    min_value=0.0,
+                    step=10.0
                 )
 
-                st.metric(
-                    "Total des heures de la semaine",
-                    f"{total_minutes / 60:.2f} h"
+                enregistrer = st.form_submit_button(
+                    "Créer le contrat"
                 )
 
-                st.divider()
-
-                st.subheader("Détail par équidé")
-
-                for h in heures:
-                    minutes = h["minutes"] or 0
-
-                    st.write(
-                        f"**{h['equide']}** : "
-                        f"{minutes / 60:.2f} heures — "
-                        f"{h['nombre_cours']} cours"
-                    )
-
-                # Création du fichier CSV
-                import csv
-                import io
-
-                fichier = io.StringIO()
-                writer = csv.writer(fichier, delimiter=";")
-
-                writer.writerow([
-                    "Equidé",
-                    "Nombre de cours",
-                    "Nombre d'heures"
-                ])
-
-                for h in heures:
-                    writer.writerow([
-                        h["equide"],
-                        h["nombre_cours"],
-                        round((h["minutes"] or 0) / 60, 2)
-                    ])
-
-                st.download_button(
-                    label="Télécharger les heures de la semaine",
-                    data="\ufeff" + fichier.getvalue(),
-                    file_name=f"heures_equides_{semaine_choisie}.csv",
-                    mime="text/csv"
-                )
-
-            else:
-                st.info("Aucune heure enregistrée cette semaine.")
-
+                if enregistrer:
+                    if fin < debut:
+                        st.error("La date de fin doit être après le début.")
+                    else:
+                        execute(
+                            """INSERT INTO full_boarding
+                            (pony_id, child_id, date_debut, date_fin, tarif)
+                            VALUES (?, ?, ?, ?, ?)""",
+                            (
+                                equide_options[equide],
+                                enfant_options[enfant],
+                                str(debut),
+                                str(fin),
+                                tarif
+                            )
+                        )
+                        st.success("Contrat créé !")
+                        st.rerun()
         else:
-            st.info(
-                "Aucune attribution enregistrée pour le moment."
+            st.warning(
+                "Ajoute d'abord au moins un cavalier et un équidé."
             )
 
+        st.divider()
+        st.subheader("Contrats enregistrés")
+
+        contrats = rows("""
+            SELECT full_boarding.*, ponies.nom AS equide,
+                   children.prenom, children.nom AS nom_cavalier
+            FROM full_boarding
+            JOIN ponies ON ponies.id = full_boarding.pony_id
+            JOIN children ON children.id = full_boarding.child_id
+            ORDER BY full_boarding.date_debut DESC
+        """)
+
+        if not contrats:
+            st.info("Aucun contrat enregistré.")
+
+        for contrat in contrats:
+            with st.container(border=True):
+                st.write(
+                    f"**{contrat['equide']} — "
+                    f"{contrat['prenom']} {contrat['nom_cavalier'] or ''}**"
+                )
+                st.write("Du :", contrat["date_debut"])
+                st.write("Au :", contrat["date_fin"])
+                st.write("Tarif :", contrat["tarif"], "€")
+                st.write("Statut :", contrat["statut"])
+
+                if contrat["statut"] == "Active":
+                    if st.button(
+                        "Terminer le contrat",
+                        key=f"fin_pension_{contrat['id']}"
+                    ):
+                        execute(
+                            "UPDATE full_boarding SET statut='Terminée' WHERE id=?",
+                            (contrat["id"],)
+                        )
+                        st.rerun()
     # =========================================================
     # GESTION DES PALEFRENIERS
     # =========================================================
