@@ -1305,7 +1305,6 @@ def coach_page():
             )
 
         st.divider()
-
         for child in rows("""
             SELECT children.*, families.nom AS famille
             FROM children
