@@ -1249,6 +1249,7 @@ def coach_page():
             "SELECT id, nom FROM families ORDER BY nom"
         )
 
+        
         if families:
             family_options = {
                 f["nom"] + " (ID " + str(f["id"]) + ")": f["id"]
@@ -1262,46 +1263,50 @@ def coach_page():
                 )
 
                 prenom = st.text_input("Prénom du cavalier")
-                nom = st.text_input("Nom de famille du cavalier")                
+                nom = st.text_input("Nom de famille du cavalier")
+
                 age = st.number_input(
                     "Âge",
                     min_value=2,
                     max_value=99,
                     value=8
                 )
+
                 galop = st.selectbox(
                     "Niveau",
-                    ["Débutant", "Galop 1", "Galop 2",
-                     "Galop 3", "Galop 4", "Galop 5",
-                     "Galop 6", "Galop 7"]
+                    [
+                        "Débutant", "Galop 1", "Galop 2",
+                        "Galop 3", "Galop 4", "Galop 5",
+                        "Galop 6", "Galop 7"
+                    ]
                 )
+
                 photo = st.text_input("Lien de la photo (facultatif)")
 
-                ajouter = st.form_submit_button(
-                    "Ajouter le cavalier"
-                )
-        if ajouter:
+                ajouter = st.form_submit_button("Ajouter le cavalier")
+
+                if ajouter:
                     if prenom.strip() and nom.strip():
                         execute(
-            """INSERT INTO children
-            (family_id, prenom, nom, age, galop, photo)
-            VALUES (?, ?, ?, ?, ?, ?)""",
-            (
-                family_options[famille],
-                prenom.strip(),
-                nom.strip(),
-                age,
-                galop,
-                photo
-            )
-        )
-        st.success("Cavalier ajouté !")
-        st.rerun()
+                            """INSERT INTO children
+                            (family_id, prenom, nom, age, galop, photo)
+                            VALUES (?, ?, ?, ?, ?, ?)""",
+                            (
+                                family_options[famille],
+                                prenom.strip(),
+                                nom.strip(),
+                                age,
+                                galop,
+                                photo
+                            )
+                        )
+                        st.success("Cavalier ajouté !")
+                        st.rerun()
                     else:
                         st.error("Indique le prénom et le nom.")
-    else:
-            st.warning(
-                "Il faut d'abord créer une famille."
+
+        else:
+            st.warning("Il faut d'abord créer une famille.")
             )
 
         st.divider()
