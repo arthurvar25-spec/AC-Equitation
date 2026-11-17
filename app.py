@@ -1,4 +1,54 @@
+        # ---------------- CAVALIERS INSCRITS AUX STAGES ----------------
 
+        st.divider()
+        st.subheader("Cavaliers inscrits aux stages")
+
+        inscriptions = rows("""
+            SELECT
+                registrations.id,
+                children.prenom,
+                children.nom AS nom_cavalier,
+                families.nom AS famille,
+                stages.nom AS stage,
+                stages.date_stage
+            FROM registrations
+            JOIN children
+                ON children.id = registrations.child_id
+            LEFT JOIN families
+                ON families.id = registrations.family_id
+            JOIN stages
+                ON stages.id = registrations.item_id
+            WHERE registrations.type = 'stage'
+            ORDER BY stages.date_stage, children.prenom
+        """)
+
+        if inscriptions:
+            for inscription in inscriptions:
+                with st.container(border=True):
+
+                    st.write(
+                        "**Stage :**",
+                        inscription["stage"]
+                    )
+
+                    st.write(
+                        "**Date :**",
+                        inscription["date_stage"]
+                    )
+
+                    st.write(
+                        "**Cavalier :**",
+                        inscription["prenom"],
+                        inscription["nom_cavalier"] or ""
+                    )
+
+                    st.write(
+                        "**Famille :**",
+                        inscription["famille"] or "Non renseignée"
+                    )
+
+        else:
+            st.info("Aucune inscription pour le moment.")
 import streamlit as st
 import sqlite3
 import hashlib
@@ -1311,30 +1361,35 @@ def coach_page():
                 "SELECT id FROM dp_requests WHERE statut='En attente'"
             ))
         )
+    
 
-    # ---------------- CAVALIERS ----------------
+# ---------------- CAVALIERS ----------------
 
     with tabs[1]:
 
         st.subheader("Liste des cavaliers")
-        
+        st.divider()
+
+        # =====================================================
+        # AJOUTER UN CAVALIER
+        # =====================================================
+
         st.subheader("Ajouter un cavalier")
 
         families = rows(
             "SELECT id, nom FROM families ORDER BY nom"
         )
 
-        
-        
+        lessons = rows(
+            "SELECT * FROM lessons ORDER BY jour, heure"
+        )
+
         if families:
+
             family_options = {
                 f["nom"] + " (ID " + str(f["id"]) + ")": f["id"]
                 for f in families
             }
-
-            lessons = rows(
-                "SELECT * FROM lessons ORDER BY jour, heure"
-            )
 
             course_options = {
                 "Aucun cours pour le moment": None
@@ -1348,6 +1403,7 @@ def coach_page():
                 course_options[label] = lesson["id"]
 
             with st.form("ajouter_cavalier_coach"):
+
                 famille = st.selectbox(
                     "Famille",
                     list(family_options.keys())
@@ -1372,10 +1428,12 @@ def coach_page():
                     ]
                 )
 
-                photo = st.text_input("Lien de la photo (facultatif)")
+                photo = st.text_input(
+                    "Lien de la photo (facultatif)"
+                )
 
                 cours_choisi = st.selectbox(
-                    "Attribuer directement un cours",
+                    "Cours à attribuer",
                     list(course_options.keys())
                 )
 
@@ -1384,6 +1442,7 @@ def coach_page():
                 )
 
                 if ajouter:
+
                     if prenom.strip() and nom.strip():
 
                         nouveau = execute(
@@ -1404,6 +1463,7 @@ def coach_page():
                         cours_id = course_options[cours_choisi]
 
                         if cours_id is not None:
+
                             execute(
                                 """INSERT INTO assignments
                                 (child_id, pony_id, lesson_id)
@@ -1412,62 +1472,122 @@ def coach_page():
                             )
 
                             st.success(
-                                "Cavalier ajouté et inscrit au cours !"
+                                "Cavalier ajouté et inscrit à son cours !"
                             )
+
                         else:
                             st.success(
-                                "Cavalier ajouté sans cours pour le moment."
+                                "Cavalier ajouté sans cours."
                             )
 
                         st.rerun()
 
                     else:
-                        st.error("Indique le prénom et le nom.")
+                        st.error(
+                            "Indique le prénom et le nom du cavalier."
+                        )
 
         else:
-            st.warning("Il faut d'abord créer une famille.")
-            
+            st.warning(
+                "Il faut d'abord créer une famille."
+            )
 
         st.divider()
-        for child in rows("""
+
+        # =====================================================
+        # LISTE DES CAVALIERS ET LEURS COURS
+        # =====================================================
+
+        st.subheader("Cavaliers inscrits")
+
+        children = rows("""
             SELECT children.*, families.nom AS famille
             FROM children
-            LEFT JOIN families ON families.id=children.family_id
-            ORDER BY prenom
-        """):
+            LEFT JOIN families ON families.id = children.family_id
+            ORDER BY children.prenom
+        """)
+
+        for child in children:
 
             with st.container(border=True):
 
                 st.write(
-                    f"**{child['prenom']}** — "
+                    f"**{child['prenom']} {child['nom'] or ''}**"
+                )
+
+                st.write(
                     f"{child['age']} ans — {child['galop']}"
                 )
 
-                st.write("Famille :", child["famille"])
+                st.write(
+                    "Famille :",
+                    child["famille"] or "Inconnue"
+                )
 
                 if child["photo"]:
                     st.image(child["photo"], width=130)
 
+                # ---------------------------------------------
+                # COURS ACTUEL DU CAVALIER
+                # ---------------------------------------------
+
+                attribution = one("""
+                    SELECT assignments.id AS assignment_id,
+                           assignments.pony_id,
+                           lessons.jour,
+                           lessons.heure,
+                           lessons.niveau
+                    FROM assignments
+                    LEFT JOIN lessons
+                    ON lessons.id = assignments.lesson_id
+                    WHERE assignments.child_id = ?
+                    ORDER BY assignments.id DESC
+                    LIMIT 1
+                """, (child["id"],))
+
+                if attribution and attribution["jour"]:
+
+                    st.success(
+                        "🔒 Cours attribué : "
+                        + str(attribution["jour"])
+                        + " à "
+                        + str(attribution["heure"])
+                        + " — "
+                        + str(attribution["niveau"])
+                    )
+
+                else:
+                    st.info("Aucun cours attribué.")
+
+                # ---------------------------------------------
+                # ATTRIBUTION DU PONEY ET DU COURS
+                # ---------------------------------------------
+
                 ponies = rows(
-                    "SELECT id,nom FROM ponies WHERE actif=1 ORDER BY nom"
+                    "SELECT id, nom FROM ponies "
+                    "WHERE actif=1 ORDER BY nom"
                 )
 
-                lessons = rows(
-                    "SELECT id,jour,heure,niveau FROM lessons ORDER BY jour,heure"
+                lessons_child = rows(
+                    "SELECT id, jour, heure, niveau "
+                    "FROM lessons ORDER BY jour, heure"
                 )
 
-                if ponies and lessons:
+                if ponies and lessons_child:
 
-                    with st.form(f"assign_{child['id']}"):
+                    pony_map = {
+                        p["nom"]: p["id"]
+                        for p in ponies
+                    }
 
-                        pony_map = {
-                            p["nom"]: p["id"] for p in ponies
-                        }
+                    lesson_map = {
+                        f"{l['jour']} - {l['heure']} - {l['niveau']}": l["id"]
+                        for l in lessons_child
+                    }
 
-                        lesson_map = {
-                            f"{l['jour']} {l['heure']} ({l['niveau']})": l["id"]
-                            for l in lessons
-                        }
+                    with st.form(
+                        f"assign_{child['id']}"
+                    ):
 
                         pony_name = st.selectbox(
                             "Attribuer un poney",
@@ -1476,19 +1596,22 @@ def coach_page():
                         )
 
                         lesson_name = st.selectbox(
-                            "Cours",
+                            "Cours du cavalier",
                             list(lesson_map.keys()),
                             key=f"lesson_{child['id']}"
                         )
+
                         autorisation_exceptionnelle = st.checkbox(
                             "Autoriser exceptionnellement un autre cavalier "
                             "à monter ce cheval en pension complète"
-)                        
-                        ok = st.form_submit_button(
-                            "Enregistrer l'attribution"
                         )
- 
-                        if ok:
+
+                        enregistrer = st.form_submit_button(
+                            "Enregistrer les attributions"
+                        )
+
+                        if enregistrer:
+
                             pension = one(
                                 """SELECT child_id FROM full_boarding
                                 WHERE pony_id=?
@@ -1507,6 +1630,7 @@ def coach_page():
                                 and pension["child_id"] != child["id"]
                                 and not autorisation_exceptionnelle
                             ):
+
                                 st.warning(
                                     "Ce cheval est en pension complète. "
                                     "Coche l'autorisation exceptionnelle "
@@ -1514,19 +1638,42 @@ def coach_page():
                                 )
 
                             else:
-                                execute("""
-                                    INSERT INTO assignments
-                                    (child_id,pony_id,lesson_id)
-                                    VALUES (?,?,?)
-                                """, (
-                                    child["id"],
-                                    pony_map[pony_name],
-                                    lesson_map[lesson_name]
-                                ))
 
-                                st.success("Poney attribué.")
+                                if attribution:
+
+                                    execute(
+                                        """UPDATE assignments
+                                        SET pony_id=?, lesson_id=?
+                                        WHERE id=?""",
+                                        (
+                                            pony_map[pony_name],
+                                            lesson_map[lesson_name],
+                                            attribution["assignment_id"]
+                                        )
+                                    )
+
+                                else:
+
+                                    execute(
+                                        """INSERT INTO assignments
+                                        (child_id, pony_id, lesson_id)
+                                        VALUES (?, ?, ?)""",
+                                        (
+                                            child["id"],
+                                            pony_map[pony_name],
+                                            lesson_map[lesson_name]
+                                        )
+                                    )
+
+                                st.success(
+                                    "Poney et cours enregistrés."
+                                )
                                 st.rerun()
-                                
+
+                # ---------------------------------------------
+                # SUPPRESSION DU CAVALIER
+                # ---------------------------------------------
+
                 st.divider()
 
                 if st.button(
@@ -1535,7 +1682,10 @@ def coach_page():
                 ):
                     st.session_state["cavalier_a_supprimer"] = child["id"]
 
-                if st.session_state.get("cavalier_a_supprimer") == child["id"]:
+                if st.session_state.get(
+                    "cavalier_a_supprimer"
+                ) == child["id"]:
+
                     st.warning(
                         "Attention : cette suppression est définitive."
                     )
@@ -1544,40 +1694,51 @@ def coach_page():
                         "Confirmer la suppression",
                         key=f"confirmer_suppression_{child['id']}"
                     ):
+
                         execute(
                             "DELETE FROM assignments WHERE child_id=?",
                             (child["id"],)
                         )
+
                         execute(
                             "DELETE FROM pony_assignments WHERE child_id=?",
                             (child["id"],)
                         )
+
                         execute(
                             "DELETE FROM owner_horse_assignments WHERE child_id=?",
                             (child["id"],)
                         )
+
                         execute(
                             "DELETE FROM registrations WHERE child_id=?",
                             (child["id"],)
                         )
+
                         execute(
                             "DELETE FROM requests WHERE child_id=?",
                             (child["id"],)
                         )
+
                         execute(
                             "DELETE FROM dp_requests WHERE child_id=?",
                             (child["id"],)
                         )
+
                         execute(
                             "DELETE FROM full_boarding WHERE child_id=?",
                             (child["id"],)
                         )
+
                         execute(
                             "DELETE FROM children WHERE id=?",
                             (child["id"],)
                         )
 
-                        st.session_state.pop("cavalier_a_supprimer", None)
+                        st.session_state.pop(
+                            "cavalier_a_supprimer", None
+                        )
+
                         st.success("Cavalier supprimé.")
                         st.rerun()
 
@@ -1585,8 +1746,12 @@ def coach_page():
                         "Annuler",
                         key=f"annuler_suppression_{child['id']}"
                     ):
-                        st.session_state.pop("cavalier_a_supprimer", None)
+
+                        st.session_state.pop(
+                            "cavalier_a_supprimer", None
+                        )
                         st.rerun()
+
     # ---------------- PONEYS ----------------
 
     with tabs[2]:
