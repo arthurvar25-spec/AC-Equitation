@@ -225,6 +225,89 @@ def init_db():
 
     for table in tables:
         db.execute(table)
+    
+    # COMPTES PALEFRENIERS
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stable_staff (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL,
+            actif INTEGER DEFAULT 1
+        )
+    """)
+
+    # TACHES DES PALEFRENIERS
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS stable_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            titre TEXT NOT NULL,
+            description TEXT,
+            staff_id INTEGER,
+            date_tache TEXT,
+            statut TEXT DEFAULT 'À faire'
+        )
+    """)
+
+    # PENSIONS COMPLETES SUR LES CHEVAUX DU CLUB
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS full_boarding (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pony_id INTEGER NOT NULL,
+            child_id INTEGER NOT NULL,
+            date_debut TEXT,
+            date_fin TEXT,
+            tarif REAL DEFAULT 0,
+            statut TEXT DEFAULT 'Active'
+        )
+    """)
+
+    # PROPRIETAIRES EXTERIEURS
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS owners (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            telephone TEXT,
+            email TEXT
+        )
+    """)
+
+    # CHEVAUX DES PROPRIETAIRES
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS owner_horses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            owner_id INTEGER,
+            description TEXT,
+            disponible INTEGER DEFAULT 1
+        )
+    """)
+
+    # ATTRIBUTIONS DES CHEVAUX PROPRIETAIRES
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS owner_horse_assignments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            horse_id INTEGER,
+            child_id INTEGER,
+            lesson_id INTEGER,
+            semaine TEXT,
+            UNIQUE(horse_id, lesson_id, semaine)
+        )
+    """)
+
+    # VERIFICATION DU NOM DE FAMILLE DES ELEVES
+    child_columns = [
+        row[1] for row in db.execute(
+            "PRAGMA table_info(children)"
+        ).fetchall()
+    ]
+
+    if "nom" not in child_columns:
+        db.execute(
+            "ALTER TABLE children ADD COLUMN nom TEXT DEFAULT ''"
+        )
+
+    db.commit()
     # Attributions hebdomadaires des poneys et chevaux
     db.execute("""
         CREATE TABLE IF NOT EXISTS pony_assignments (
@@ -1197,25 +1280,52 @@ def coach_page():
                             list(lesson_map.keys()),
                             key=f"lesson_{child['id']}"
                         )
-
+                         autorisation_exceptionnelle = st.checkbox(
+                            "Autoriser exceptionnellement un autre cavalier "
+                            "à monter ce cheval en pension complète"
+)                        
                         ok = st.form_submit_button(
                             "Enregistrer l'attribution"
                         )
-
+ 
                         if ok:
+                            pension = one(
+                                """SELECT child_id FROM full_boarding
+                                WHERE pony_id=?
+                                AND statut='Active'
+                                AND date_debut<=?
+                                AND date_fin>=?""",
+                                (
+                                    pony_map[pony_name],
+                                    str(date.today()),
+                                    str(date.today())
+                                )
+                            )
 
-                            execute("""
-                                INSERT INTO assignments
-                                (child_id,pony_id,lesson_id)
-                                VALUES (?,?,?)
-                            """, (
-                                child["id"],
-                                pony_map[pony_name],
-                                lesson_map[lesson_name]
-                            ))
+                            if (
+                                pension
+                                and pension["child_id"] != child["id"]
+                                and not autorisation_exceptionnelle
+                            ):
+                                st.warning(
+                                    "Ce cheval est en pension complète. "
+                                    "Coche l'autorisation exceptionnelle "
+                                    "pour continuer."
+                                )
 
-                            st.success("Poney attribué.")
+                            else:
+                                execute("""
+                                    INSERT INTO assignments
+                                    (child_id,pony_id,lesson_id)
+                                    VALUES (?,?,?)
+                                """, (
+                                    child["id"],
+                                    pony_map[pony_name],
+                                    lesson_map[lesson_name]
+                                ))
 
+                                st.success("Poney attribué.")
+                                st.rerun()
     # ---------------- PONEYS ----------------
 
     with tabs[2]:
