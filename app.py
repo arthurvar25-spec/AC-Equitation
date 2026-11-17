@@ -623,6 +623,7 @@ def public_page():
                     )
                     st.success("Demande envoyée au club !")
 
+    
     # ---------------- CONNEXION ----------------
 
     elif menu == "Connexion":
@@ -630,7 +631,7 @@ def public_page():
 
         type_compte = st.radio(
             "Je suis :",
-            ["Famille", "Coach"],
+            ["Famille", "Coach", "Palefrenier"],
             horizontal=True
         )
 
@@ -640,11 +641,13 @@ def public_page():
             ok = st.form_submit_button("Se connecter")
 
             if ok:
+
                 if type_compte == "Famille":
                     user = one(
                         "SELECT * FROM families WHERE username=?",
                         (identifiant.strip(),)
                     )
+
                     if user and check_password(password, user["password"]):
                         st.session_state.role = "family"
                         st.session_state.user_id = user["id"]
@@ -653,15 +656,30 @@ def public_page():
                     else:
                         st.error("Identifiant ou mot de passe incorrect.")
 
-                else:
+                elif type_compte == "Coach":
                     user = one(
                         "SELECT * FROM coaches WHERE username=?",
                         (identifiant.strip(),)
                     )
+
                     if user and check_password(password, user["password"]):
                         st.session_state.role = "coach"
                         st.session_state.user_id = user["id"]
                         st.session_state.username = user["username"]
+                        st.rerun()
+                    else:
+                        st.error("Identifiant ou mot de passe incorrect.")
+
+                elif type_compte == "Palefrenier":
+                    staff = one(
+                        "SELECT * FROM stable_staff WHERE username=? AND actif=1",
+                        (identifiant.strip(),)
+                    )
+
+                    if staff and check_password(password, staff["password"]):
+                        st.session_state.role = "stable_staff"
+                        st.session_state.staff_id = staff["id"]
+                        st.session_state.username = staff["username"]
                         st.rerun()
                     else:
                         st.error("Identifiant ou mot de passe incorrect.")
@@ -764,33 +782,38 @@ def family_page():
                     pony["nom"] if pony else "Pas encore attribué"
                 )
 
+    
     # ---------------- AJOUT ENFANT ----------------
 
     with tabs[1]:
         with st.form("add_child"):
             prenom = st.text_input("Prénom de l'enfant")
-            age = st.number_input("Âge", min_value=2, max_value=99, value=8)
+            nom = st.text_input("Nom de famille de l'enfant")
+            age = st.number_input(
+                "Âge", min_value=2, max_value=99, value=8
+            )
             galop = st.selectbox(
                 "Niveau",
                 ["Débutant", "Galop 1", "Galop 2", "Galop 3",
                  "Galop 4", "Galop 5", "Galop 6", "Galop 7"]
             )
             photo = st.text_input("Lien de la photo (facultatif)")
+
             ok = st.form_submit_button("Ajouter l'enfant")
 
             if ok:
-                if prenom.strip():
+                if prenom.strip() and nom.strip():
                     execute(
                         """INSERT INTO children
-                        (family_id,prenom,age,galop,photo)
-                        VALUES (?,?,?,?,?)""",
-                        (family_id, prenom, age, galop, photo)
+                        (family_id, prenom, nom, age, galop, photo)
+                        VALUES (?, ?, ?, ?, ?, ?)""",
+                        (family_id, prenom.strip(), nom.strip(),
+                         age, galop, photo)
                     )
                     st.success("Enfant ajouté.")
                     st.rerun()
                 else:
-                    st.error("Indique le prénom.")
-
+                    st.error("Indique le prénom et le nom.")
     # ---------------- COURS ----------------
 
     with tabs[2]:
@@ -1110,15 +1133,66 @@ def family_page():
                 st.caption(notification["date_creation"])
 
 
-# =========================================================
-# ESPACE COACH
-# =========================================================
+def stable_staff_page():
+    st.title("🐴 Espace palefrenier")
+
+    staff_id = st.session_state.get("staff_id")
+
+    staff = one(
+        "SELECT * FROM stable_staff WHERE id=? AND actif=1",
+        (staff_id,)
+    )
+
+    if not staff:
+        st.error("Compte palefrenier introuvable.")
+        return
+
+    st.subheader("Bonjour " + staff["nom"] + " !")
+
+    st.divider()
+    st.subheader("Mes tâches")
+
+    tasks = rows(
+        """SELECT * FROM stable_tasks
+        WHERE staff_id=?
+        ORDER BY date_tache""",
+        (staff_id,)
+    )
+
+    if not tasks:
+        st.info("Aucune tâche pour le moment.")
+
+    for task in tasks:
+        with st.container(border=True):
+            st.write("**" + task["titre"] + "**")
+            st.write(task["description"] or "")
+            st.write("Date :", task["date_tache"] or "Non définie")
+            st.write("Statut :", task["statut"])
+
+            if task["statut"] != "Terminée":
+                if st.button(
+                    "Terminer cette tâche",
+                    key=f"finish_{task['id']}"
+                ):
+                    execute(
+                        "UPDATE stable_tasks SET statut='Terminée' WHERE id=?",
+                        (task["id"],)
+                    )
+                    st.rerun()
+
+    st.divider()
+
+    if st.button("Se déconnecter"):
+        st.session_state.role = "public"
+        st.session_state.pop("staff_id", None)
+        st.rerun()
+
 
 def coach_page():
-
-    st.header("Espace coach")
-    st.caption("Gestion du club AC Équitation")
-
+    # =========================================================
+    # ESPACE COACH
+    # =========================================================
+    
     tabs = st.tabs([
         "Tableau de bord",
         "Cavaliers",
@@ -1131,10 +1205,12 @@ def coach_page():
         "Actualités",
         "Balades",
         "Attributions semaine",
-        "Gestion équidés"
-        "Heures des équidés"    ])       
-
-    # ---------------- TABLEAU DE BORD ----------------
+        "Gestion équidés",
+        "Heures des équidés",
+        "Pensions complètes",
+        "Gestion palefreniers"
+    ])    
+# ---------------- TABLEAU DE BORD ----------------
 
     with tabs[0]:
 
@@ -2283,6 +2359,9 @@ if st.session_state.role == "family":
 
 elif st.session_state.role == "coach":
     coach_page()
+
+elif st.session_state.role == "stable_staff":
+    stable_staff_page()
 
 else:
     public_page()
