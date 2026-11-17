@@ -1526,6 +1526,67 @@ def coach_page():
 
                                 st.success("Poney attribué.")
                                 st.rerun()
+                                
+                st.divider()
+
+                if st.button(
+                    "🗑️ Supprimer ce cavalier",
+                    key=f"supprimer_{child['id']}"
+                ):
+                    st.session_state["cavalier_a_supprimer"] = child["id"]
+
+                if st.session_state.get("cavalier_a_supprimer") == child["id"]:
+                    st.warning(
+                        "Attention : cette suppression est définitive."
+                    )
+
+                    if st.button(
+                        "Confirmer la suppression",
+                        key=f"confirmer_suppression_{child['id']}"
+                    ):
+                        execute(
+                            "DELETE FROM assignments WHERE child_id=?",
+                            (child["id"],)
+                        )
+                        execute(
+                            "DELETE FROM pony_assignments WHERE child_id=?",
+                            (child["id"],)
+                        )
+                        execute(
+                            "DELETE FROM owner_horse_assignments WHERE child_id=?",
+                            (child["id"],)
+                        )
+                        execute(
+                            "DELETE FROM registrations WHERE child_id=?",
+                            (child["id"],)
+                        )
+                        execute(
+                            "DELETE FROM requests WHERE child_id=?",
+                            (child["id"],)
+                        )
+                        execute(
+                            "DELETE FROM dp_requests WHERE child_id=?",
+                            (child["id"],)
+                        )
+                        execute(
+                            "DELETE FROM full_boarding WHERE child_id=?",
+                            (child["id"],)
+                        )
+                        execute(
+                            "DELETE FROM children WHERE id=?",
+                            (child["id"],)
+                        )
+
+                        st.session_state.pop("cavalier_a_supprimer", None)
+                        st.success("Cavalier supprimé.")
+                        st.rerun()
+
+                    if st.button(
+                        "Annuler",
+                        key=f"annuler_suppression_{child['id']}"
+                    ):
+                        st.session_state.pop("cavalier_a_supprimer", None)
+                        st.rerun()
     # ---------------- PONEYS ----------------
 
     with tabs[2]:
