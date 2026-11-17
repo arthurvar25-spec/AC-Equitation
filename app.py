@@ -2289,43 +2289,99 @@ def coach_page():
                     st.rerun()
                     
     
+    
     # ---------------- HEURES DES EQUIDES ----------------
 
     with tabs[12]:
-        st.header("⏱️ Heures des équidés")
+        st.header("Heures hebdomadaires des équidés")
 
         heures = rows("""
             SELECT
-                ponies.nom AS equide,
-                COUNT(assignments.id) AS nombre_cours,
-                SUM(COALESCE(lessons.duree, 0)) AS minutes
-            FROM ponies
-            LEFT JOIN assignments
-                ON assignments.pony_id = ponies.id
-            LEFT JOIN lessons
-                ON lessons.id = assignments.lesson_id
-            GROUP BY ponies.id, ponies.nom
-            ORDER BY ponies.nom
+                p.nom AS equide,
+                COUNT(a.id) AS nombre_cours,
+                SUM(COALESCE(l.duree, 0)) AS minutes
+            FROM assignments a
+            JOIN ponies p ON p.id = a.pony_id
+            JOIN lessons l ON l.id = a.lesson_id
+            GROUP BY p.id, p.nom
+            ORDER BY p.nom
         """)
 
-        if not heures:
-            st.info("Aucun équidé enregistré.")
+        if heures:
+            st.subheader("Récapitulatif par poney")
 
-        total_minutes = sum(h["minutes"] or 0 for h in heures)
+            total = sum(h["minutes"] or 0 for h in heures)
 
-        st.metric(
-            "Total des heures attribuées",
-            f"{total_minutes / 60:.2f} h"
-        )
+            st.metric(
+                "Total des heures hebdomadaires",
+                f"{total / 60:.2f} h"
+            )
 
-        st.divider()
+            for h in heures:
+                minutes = h["minutes"] or 0
+                st.write(
+                    f"**{h['equide']}** : "
+                    f"{minutes / 60:.2f} h — "
+                    f"{h['nombre_cours']} cours"
+                )
 
-        for h in heures:
-            minutes = h["minutes"] or 0
-            st.write(
-                f"**{h['equide']}** : "
-                f"{minutes / 60:.2f} heures — "
-                f"{h['nombre_cours']} cours"
+            import io
+            from reportlab.lib import colors
+            from reportlab.lib.pagesizes import A4, landscape
+            from reportlab.lib.styles import getSampleStyleSheet
+            from reportlab.platypus import (
+                SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+            )
+
+            fichier = io.BytesIO()
+
+            document = SimpleDocTemplate(
+                fichier,
+                pagesize=landscape(A4)
+            )
+
+            styles = getSampleStyleSheet()
+
+            contenu = [
+                Paragraph("AC EQUITATION", styles["Title"]),
+                Paragraph("Heures hebdomadaires des poneys", styles["Heading2"]),
+                Spacer(1, 20)
+            ]
+
+            donnees = [
+                ["Poney / Cheval", "Nombre de cours", "Heures"]
+            ]
+
+            for h in heures:
+                donnees.append([
+                    h["equide"],
+                    h["nombre_cours"],
+                    round((h["minutes"] or 0) / 60, 2)
+                ])
+
+            tableau = Table(donnees)
+
+            tableau.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1768AC")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+                ("PADDING", (0, 0), (-1, -1), 10),
+                ("ALIGN", (1, 1), (-1, -1), "CENTER")
+            ]))
+
+            contenu.append(tableau)
+            document.build(contenu)
+
+            st.download_button(
+                "📄 Télécharger le PDF des heures",
+                data=fichier.getvalue(),
+                file_name="heures_hebdomadaires_AC_Equitation.pdf",
+                mime="application/pdf"
+            )
+
+        else:
+            st.info(
+                "Aucune attribution de poney enregistrée."
             )
             
     
