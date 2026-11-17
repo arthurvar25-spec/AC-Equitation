@@ -2272,6 +2272,55 @@ def coach_page():
             st.info(
                 "Aucune attribution enregistrée pour le moment."
             )
+
+    # =========================================================
+    # GESTION DES PALEFRENIERS
+    # =========================================================
+
+    with tabs[14]:
+        st.header("🐴 Gestion des palefreniers")
+
+        st.subheader("Créer un compte")
+
+        with st.form("creation_palefrenier"):
+            nom = st.text_input("Nom et prénom")
+            username = st.text_input("Identifiant")
+            password = st.text_input("Mot de passe", type="password")
+
+            creer = st.form_submit_button("Créer le compte")
+
+            if creer:
+                if not nom or not username or not password:
+                    st.error("Remplis tous les champs.")
+                else:
+                    try:
+                        execute(
+                            """INSERT INTO stable_staff
+                            (nom, username, password, actif)
+                            VALUES (?, ?, ?, 1)""",
+                            (
+                                nom.strip(),
+                                username.strip(),
+                                hash_password(password)
+                            )
+                        )
+                        st.success("Compte créé avec succès !")
+                        st.rerun()
+                    except Exception:
+                        st.error("Cet identifiant est déjà utilisé.")
+
+        st.divider()
+        st.subheader("Comptes existants")
+
+        staff_list = rows(
+            "SELECT * FROM stable_staff ORDER BY nom"
+        )
+
+        for staff in staff_list:
+            st.write(
+                "🐴 " + staff["nom"] +
+                " — Identifiant : " + staff["username"]
+            )
 # =========================================================
 # CREATION DES COMPTES COACHS
 # =========================================================
