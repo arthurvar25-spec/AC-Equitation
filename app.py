@@ -1307,7 +1307,7 @@ def coach_page():
 
         else:
             st.warning("Il faut d'abord créer une famille.")
-            )
+            
 
         st.divider()
         for child in rows("""
