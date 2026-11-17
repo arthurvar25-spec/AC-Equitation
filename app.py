@@ -1281,8 +1281,8 @@ def coach_page():
                     "Ajouter le cavalier"
                 )
         if ajouter:
-        if prenom.strip() and nom.strip():
-        execute(
+                    if prenom.strip() and nom.strip():
+                        execute(
             """INSERT INTO children
             (family_id, prenom, nom, age, galop, photo)
             VALUES (?, ?, ?, ?, ?, ?)""",
