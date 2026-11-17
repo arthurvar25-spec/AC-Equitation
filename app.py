@@ -2424,21 +2424,12 @@ def coach_page():
 
                         st.rerun()
 
+    
     # ---------------- ATTRIBUTIONS SEMAINE ----------------
 
     with tabs[10]:
-        jours = [
-            "Mardi",
-            "Mercredi",
-            "Jeudi",
-            "Vendredi",
-            "Samedi"
-        ]
 
-        lessons = rows(
-            "SELECT * FROM lessons ORDER BY heure"
-        ) 
-       
+        st.subheader("📅 Planning hebdomadaire des cavaliers et poneys")
 
         date_choisie = st.date_input(
             "Choisir la semaine",
@@ -2450,57 +2441,117 @@ def coach_page():
             days=date_choisie.weekday()
         )
 
-        semaine = debut_semaine.isoformat()        
+        semaine = debut_semaine.isoformat()
+
+        jours = [
+            "Lundi", "Mardi", "Mercredi",
+            "Jeudi", "Vendredi", "Samedi", "Dimanche"
+        ]
+
+        lessons = rows(
+            "SELECT * FROM lessons ORDER BY heure"
+        )
+
         planning_html = [
             "<html><head><meta charset='utf-8'>",
             "<title>Planning AC Équitation</title>",
             """<style>
-            body { font-family: Arial; padding: 20px; }
-            h1 { text-align: center; }
-            table { width: 100%; border-collapse: collapse;
-                    margin-bottom: 20px; }
-            th, td { border: 1px solid black; padding: 8px; }
-            th { background: #e5eadf; }
+            body {
+                font-family: Arial;
+                padding: 20px;
+                color: #333;
+            }
+            h1 {
+                text-align: center;
+                color: #496044;
+            }
+            h2 {
+                color: #496044;
+                border-bottom: 2px solid #496044;
+                padding-bottom: 5px;
+            }
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-bottom: 20px;
+            }
+            th, td {
+                border: 1px solid #777;
+                padding: 9px;
+                text-align: left;
+            }
+            th {
+                background: #e5eadf;
+            }
             @media print {
-                button { display: none; }
+                body { padding: 5px; }
             }
             </style></head><body>""",
-            "<h1>AC Équitation</h1>",
-            f"<h2>Planning semaine du {semaine}</h2>"
+            "<h1>🐴 AC ÉQUITATION</h1>",
+            f"<h2>Planning de la semaine du {semaine}</h2>"
         ]
 
         for jour in jours:
+
             planning_html.append(f"<h2>{jour}</h2>")
 
-            for lesson in lessons:
-                if lesson["jour"] != jour:
-                    continue
+            cours_du_jour = [
+                lesson for lesson in lessons
+                if lesson["jour"] == jour
+            ]
+
+            if not cours_du_jour:
+                planning_html.append("<p>Aucun cours.</p>")
+
+            for lesson in cours_du_jour:
 
                 planning_html.append(
-                    f"<h3>{html.escape(str(lesson['heure']))} "
-                    f"- {html.escape(str(lesson['niveau']))}</h3>"
+                    f"<h3>{html.escape(str(lesson['heure']))} - "
+                    f"{html.escape(str(lesson['niveau']))}</h3>"
                 )
 
-                planning_html.append(
-                    "<table><tr><th>Cavalier</th>"
-                    "<th>Poney / Cheval</th></tr>"
-                )
+                planning_html.append("""
+                    <table>
+                    <tr>
+                        <th>Cavalier</th>
+                        <th>Nom de famille</th>
+                        <th>Poney / Cheval</th>
+                    </tr>
+                """)
 
-                for r in rows(
-                    """SELECT children.prenom, ponies.nom
-                    FROM pony_assignments
-                    JOIN children ON children.id=pony_assignments.child_id
-                    LEFT JOIN ponies ON ponies.id=pony_assignments.pony_id
-                    WHERE pony_assignments.lesson_id=?
-                    AND pony_assignments.semaine=?
-                    ORDER BY children.prenom""",
-                    (lesson["id"], semaine)
-                ):
+                cavaliers = rows("""
+                    SELECT DISTINCT
+                        children.prenom,
+                        children.nom AS nom_cavalier,
+                        ponies.nom AS poney
+                    FROM assignments
+                    JOIN children
+                        ON children.id = assignments.child_id
+                    LEFT JOIN ponies
+                        ON ponies.id = assignments.pony_id
+                    WHERE assignments.lesson_id = ?
+                    ORDER BY children.prenom
+                """, (lesson["id"],))
+
+                if cavaliers:
+
+                    for cavalier in cavaliers:
+
+                        planning_html.append(
+                            "<tr><td>"
+                            + html.escape(str(cavalier["prenom"] or ""))
+                            + "</td><td>"
+                            + html.escape(str(cavalier["nom_cavalier"] or ""))
+                            + "</td><td>"
+                            + html.escape(str(cavalier["poney"] or "À définir"))
+                            + "</td></tr>"
+                        )
+
+                else:
+
                     planning_html.append(
-                        "<tr><td>" +
-                        html.escape(str(r["prenom"])) +
-                        "</td><td>" +
-                        html.escape(str(r["nom"] or "Non attribué")) +
+                        "<tr><td colspan='3'>"
+                        "Aucun cavalier inscrit"
                         "</td></tr>"
                     )
 
@@ -2509,10 +2560,15 @@ def coach_page():
         planning_html.append("</body></html>")
 
         st.download_button(
-            "Télécharger le planning imprimable",
+            "📄 Télécharger le planning",
             data="".join(planning_html),
             file_name=f"planning_AC_equitation_{semaine}.html",
             mime="text/html"
+        )
+
+        st.info(
+            "Pour obtenir un PDF : télécharge le planning, "
+            "ouvre-le puis fais Imprimer → Enregistrer en PDF."
         )
     # ---------------- GESTION EQUIDES ----------------
 
