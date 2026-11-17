@@ -1325,11 +1325,27 @@ def coach_page():
         )
 
         
+        
         if families:
             family_options = {
                 f["nom"] + " (ID " + str(f["id"]) + ")": f["id"]
                 for f in families
             }
+
+            lessons = rows(
+                "SELECT * FROM lessons ORDER BY jour, heure"
+            )
+
+            course_options = {
+                "Aucun cours pour le moment": None
+            }
+
+            for lesson in lessons:
+                label = (
+                    f"{lesson['jour']} - {lesson['heure']} - "
+                    f"{lesson['niveau']} (cours n°{lesson['id']})"
+                )
+                course_options[label] = lesson["id"]
 
             with st.form("ajouter_cavalier_coach"):
                 famille = st.selectbox(
@@ -1358,11 +1374,19 @@ def coach_page():
 
                 photo = st.text_input("Lien de la photo (facultatif)")
 
-                ajouter = st.form_submit_button("Ajouter le cavalier")
+                cours_choisi = st.selectbox(
+                    "Attribuer directement un cours",
+                    list(course_options.keys())
+                )
+
+                ajouter = st.form_submit_button(
+                    "Ajouter le cavalier et son cours"
+                )
 
                 if ajouter:
                     if prenom.strip() and nom.strip():
-                        execute(
+
+                        nouveau = execute(
                             """INSERT INTO children
                             (family_id, prenom, nom, age, galop, photo)
                             VALUES (?, ?, ?, ?, ?, ?)""",
@@ -1375,8 +1399,28 @@ def coach_page():
                                 photo
                             )
                         )
-                        st.success("Cavalier ajouté !")
+
+                        nouvel_id = nouveau.lastrowid
+                        cours_id = course_options[cours_choisi]
+
+                        if cours_id is not None:
+                            execute(
+                                """INSERT INTO assignments
+                                (child_id, pony_id, lesson_id)
+                                VALUES (?, NULL, ?)""",
+                                (nouvel_id, cours_id)
+                            )
+
+                            st.success(
+                                "Cavalier ajouté et inscrit au cours !"
+                            )
+                        else:
+                            st.success(
+                                "Cavalier ajouté sans cours pour le moment."
+                            )
+
                         st.rerun()
+
                     else:
                         st.error("Indique le prénom et le nom.")
 
