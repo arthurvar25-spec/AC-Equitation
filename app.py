@@ -2090,6 +2090,57 @@ def coach_page():
                 st.write("Famille :", inscription["famille"] or "Inconnue")
                 st.write("Stage :", inscription["stage"])
                 st.write("Date :", inscription["date_stage"])
+    # ---------------- CAVALIERS INSCRITS AUX STAGES ----------------
+
+        st.divider()
+        st.subheader("Cavaliers inscrits aux stages")
+
+        inscriptions = rows("""
+            SELECT
+                registrations.id,
+                children.prenom,
+                children.nom AS nom_cavalier,
+                families.nom AS famille,
+                stages.nom AS stage,
+                stages.date_stage
+            FROM registrations
+            JOIN children
+                ON children.id = registrations.child_id
+            LEFT JOIN families
+                ON families.id = registrations.family_id
+            JOIN stages
+                ON stages.id = registrations.item_id
+            WHERE registrations.type = 'stage'
+            ORDER BY stages.date_stage, children.prenom
+        """)
+
+        if inscriptions:
+            for inscription in inscriptions:
+                with st.container(border=True):
+
+                    st.write(
+                        "**Stage :**",
+                        inscription["stage"]
+                    )
+
+                    st.write(
+                        "**Date :**",
+                        inscription["date_stage"]
+                    )
+
+                    st.write(
+                        "**Cavalier :**",
+                        inscription["prenom"],
+                        inscription["nom_cavalier"] or ""
+                    )
+
+                    st.write(
+                        "**Famille :**",
+                        inscription["famille"] or "Non renseignée"
+                    )
+
+        else:
+            st.info("Aucune inscription pour le moment.")    
     # ---------------- EVENEMENTS ----------------
 
     with tabs[7]:
