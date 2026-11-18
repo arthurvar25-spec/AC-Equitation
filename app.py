@@ -1,6 +1,9 @@
 
 import streamlit as st
-import sqlite3
+import sqlite3  # utilisé uniquement pour récupérer une ancienne base SQLite si elle existe
+import os
+import psycopg
+from psycopg.rows import dict_row
 import hashlib
 import secrets
 import json
@@ -17,7 +20,8 @@ st.set_page_config(
     layout="wide"
 )
 
-DB = "ac_equitation.db"
+# Ancienne base locale : utilisée uniquement pour tenter une migration automatique.
+LEGACY_DB = "ac_equitation.db"
 
 
 # -------------------- DESIGN AC EQUITATION --------------------
@@ -125,36 +129,293 @@ hr {
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------- BASE DE DONNEES --------------------
+# -------------------- BASE DE DONNEES SUPABASE --------------------
 
-db = sqlite3.connect(DB, check_same_thread=False)
-db.row_factory = sqlite3.Row
+if "DATABASE_URL" not in st.secrets:
+    st.error(
+        "La connexion Supabase manque. Ajoute DATABASE_URL dans "
+        "Settings > Secrets sur Streamlit Community Cloud."
+    )
+    st.stop()
+
+
+@st.cache_resource
+def get_database_connection(database_url):
+    return psycopg.connect(
+        database_url,
+        sslmode="require",
+        connect_timeout=15,
+        row_factory=dict_row
+    )
+
+
+db = get_database_connection(st.secrets["DATABASE_URL"])
 
 
 def execute(sql, values=()):
-    cur = db.execute(sql, values)
-    db.commit()
-    return cur
+    try:
+        cur = db.execute(sql.replace("?", "%s"), values)
+        db.commit()
+        return cur
+    except Exception:
+        db.rollback()
+        raise
 
 
 def rows(sql, values=()):
-    return db.execute(sql, values).fetchall()
+    try:
+        result = db.execute(sql.replace("?", "%s"), values).fetchall()
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
 
 
 def one(sql, values=()):
-    return db.execute(sql, values).fetchone()
+    try:
+        result = db.execute(sql.replace("?", "%s"), values).fetchone()
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
+
+
+def insert_id(sql, values=()):
+    try:
+        cur = db.execute(sql.replace("?", "%s"), values)
+        result = cur.fetchone()
+        db.commit()
+        return result["id"]
+    except Exception:
+        db.rollback()
+        raise
+
+
+BACKUP_TABLES = [
+    "families", "weekly_assignments", "coaches", "children",
+    "ponies", "lessons", "assignments", "dp_requests", "requests",
+    "lesson_changes", "stages", "events", "registrations", "posts",
+    "rides", "notifications", "stable_staff", "stable_tasks",
+    "full_boarding", "owners", "owner_horses",
+    "owner_horse_assignments", "pony_assignments"
+]
+
+
+def migrate_legacy_sqlite():
+    """
+    Tente de transférer l'ancienne base SQLite locale vers Supabase.
+    La migration ne se fait que si la base locale contient des données
+    et si les tables Supabase sont encore vides.
+    """
+    if not os.path.exists(LEGACY_DB):
+        return
+
+    try:
+        legacy = sqlite3.connect(
+            f"file:{LEGACY_DB}?mode=ro",
+            uri=True
+        )
+        legacy.row_factory = sqlite3.Row
+
+        db.execute("""
+            CREATE TABLE IF NOT EXISTS ac_equitation_migrations (
+                name TEXT PRIMARY KEY,
+                completed_at TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        already_done = db.execute(
+            "SELECT name FROM ac_equitation_migrations "
+            "WHERE name='sqlite_to_supabase_v1'"
+        ).fetchone()
+        if already_done:
+            legacy.close()
+            return
+
+        legacy_tables = {
+            row["name"] for row in legacy.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+
+        tables_with_data = []
+        for table in BACKUP_TABLES:
+            if table in legacy_tables:
+                count = legacy.execute(
+                    f'SELECT COUNT(*) FROM "{table}"'
+                ).fetchone()[0]
+                if count:
+                    tables_with_data.append(table)
+
+        if not tables_with_data:
+            legacy.close()
+            return
+
+        # Import non destructif : les lignes déjà présentes dans Supabase
+        # ne sont jamais remplacées.
+        for table in tables_with_data:
+            source_rows = legacy.execute(
+                f'SELECT * FROM "{table}"'
+            ).fetchall()
+            source_columns = [item[1] for item in legacy.execute(
+                f'PRAGMA table_info("{table}")'
+            ).fetchall()]
+
+            target_columns = {
+                row["column_name"] for row in db.execute(
+                    """SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name=%s""",
+                    (table,)
+                ).fetchall()
+            }
+
+            columns = [column for column in source_columns if column in target_columns]
+            if not columns:
+                continue
+
+            column_sql = ", ".join(f'"{column}"' for column in columns)
+            placeholders = ", ".join(["%s"] * len(columns))
+            insert_sql = (
+                f'INSERT INTO "{table}" ({column_sql}) '
+                f'VALUES ({placeholders}) ON CONFLICT DO NOTHING'
+            )
+
+            for source_row in source_rows:
+                values = tuple(source_row[column] for column in columns)
+                db.execute(insert_sql, values)
+
+            if "id" in columns:
+                sequence = db.execute(
+                    "SELECT pg_get_serial_sequence(%s, 'id') AS seq",
+                    (table,)
+                ).fetchone()["seq"]
+                maximum = db.execute(
+                    f'SELECT MAX(id) AS maximum FROM "{table}"'
+                ).fetchone()["maximum"]
+                if sequence and maximum is not None:
+                    db.execute(
+                        "SELECT setval(%s, %s, true)",
+                        (sequence, maximum)
+                    )
+
+        db.execute(
+            "INSERT INTO ac_equitation_migrations (name) "
+            "VALUES ('sqlite_to_supabase_v1') ON CONFLICT DO NOTHING"
+        )
+        db.commit()
+        legacy.close()
+        st.sidebar.success(
+            "Anciennes données locales transférées vers Supabase."
+        )
+
+    except Exception as error:
+        db.rollback()
+        try:
+            legacy.close()
+        except Exception:
+            pass
+        st.error(
+            "La tentative de récupération de l'ancienne base a échoué. "
+            "Les données Supabase existantes n'ont pas été écrasées. "
+            "Vérifie la configuration de Supabase ou contacte-moi avec "
+            "une capture de l'erreur (sans aucun secret)."
+        )
+        st.stop()
+
+
+def create_backup_json():
+    contenu = {
+        "format": "AC_EQUITATION_BACKUP_V1",
+        "created_at": datetime.now().isoformat(),
+        "tables": {}
+    }
+    for table in BACKUP_TABLES:
+        contenu["tables"][table] = [
+            dict(record) for record in rows(f'SELECT * FROM "{table}" ORDER BY id')
+        ]
+    return json.dumps(
+        contenu,
+        ensure_ascii=False,
+        indent=2,
+        default=str
+    ).encode("utf-8")
+
+
+def restore_backup_json(backup_bytes):
+    contenu = json.loads(backup_bytes.decode("utf-8"))
+    if contenu.get("format") != "AC_EQUITATION_BACKUP_V1":
+        raise ValueError("Ce fichier n'est pas une sauvegarde AC Équitation.")
+    tables = contenu.get("tables")
+    if not isinstance(tables, dict):
+        raise ValueError("Le contenu de la sauvegarde est invalide.")
+
+    try:
+        for table in BACKUP_TABLES:
+            enregistrements = tables.get(table, [])
+            if not isinstance(enregistrements, list):
+                raise ValueError(f"Les données de la table {table} sont invalides.")
+
+            colonnes_db = {
+                row["column_name"] for row in db.execute(
+                    """SELECT column_name
+                    FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name=%s""",
+                    (table,)
+                ).fetchall()
+            }
+
+            for record in enregistrements:
+                if not isinstance(record, dict):
+                    continue
+                colonnes = [
+                    col for col in record.keys()
+                    if col in colonnes_db
+                ]
+                if not colonnes:
+                    continue
+
+                colonnes_sql = ", ".join(f'"{col}"' for col in colonnes)
+                marqueurs = ", ".join(["%s"] * len(colonnes))
+                valeurs = tuple(record[col] for col in colonnes)
+
+                db.execute(
+                    f'INSERT INTO "{table}" ({colonnes_sql}) '
+                    f'VALUES ({marqueurs}) ON CONFLICT DO NOTHING',
+                    valeurs
+                )
+
+            if "id" in colonnes_db:
+                sequence = db.execute(
+                    "SELECT pg_get_serial_sequence(%s, 'id') AS seq",
+                    (table,)
+                ).fetchone()["seq"]
+                maximum = db.execute(
+                    f'SELECT MAX(id) AS maximum FROM "{table}"'
+                ).fetchone()["maximum"]
+                if sequence and maximum is not None:
+                    db.execute(
+                        "SELECT setval(%s, %s, true)",
+                        (sequence, maximum)
+                    )
+
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
 
 def init_db():
     tables = [
         """CREATE TABLE IF NOT EXISTS families (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom TEXT, email TEXT, telephone TEXT,
             username TEXT UNIQUE, password TEXT
         )""",
         
         """CREATE TABLE IF NOT EXISTS weekly_assignments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             semaine_debut TEXT,
             child_id INTEGER,
             lesson_id INTEGER,
@@ -164,7 +425,7 @@ def init_db():
 
         
         """CREATE TABLE IF NOT EXISTS weekly_assignments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             semaine_debut TEXT,
             child_id INTEGER,
             pony_id INTEGER,
@@ -173,14 +434,14 @@ def init_db():
         )""",
         
         """CREATE TABLE IF NOT EXISTS coaches (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             username TEXT UNIQUE,
             password TEXT,
             nom TEXT
         )""",
 
         """CREATE TABLE IF NOT EXISTS children (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             family_id INTEGER,
             prenom TEXT,
             age INTEGER,
@@ -189,7 +450,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS ponies (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom TEXT,
             age INTEGER,
             description TEXT,
@@ -198,7 +459,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS lessons (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             jour TEXT,
             heure TEXT,
             duree INTEGER,
@@ -207,14 +468,14 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS assignments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             child_id INTEGER,
             pony_id INTEGER,
             lesson_id INTEGER
         )""",
 
         """CREATE TABLE IF NOT EXISTS dp_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             family_id INTEGER,
             child_id INTEGER,
             courses TEXT,
@@ -223,7 +484,7 @@ def init_db():
         )""",# Ajouter la colonne du poney souhaité si elle n'existe pas
        
     """CREATE TABLE IF NOT EXISTS requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             family_id INTEGER,
             child_id INTEGER,
             type TEXT,
@@ -233,7 +494,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS lesson_changes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             lesson_id INTEGER,
             date_cours TEXT,
             action TEXT,
@@ -243,7 +504,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS stages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom TEXT,
             discipline TEXT,
             date_stage TEXT,
@@ -254,7 +515,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS events (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom TEXT,
             date_event TEXT,
             description TEXT,
@@ -262,7 +523,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS registrations (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             family_id INTEGER,
             child_id INTEGER,
             type TEXT,
@@ -271,7 +532,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS posts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             titre TEXT,
             contenu TEXT,
             photo TEXT,
@@ -279,7 +540,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS rides (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom_responsable TEXT,
             telephone TEXT,
             email TEXT,
@@ -291,7 +552,7 @@ def init_db():
         )""",
 
         """CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             family_id INTEGER,
             message TEXT,
             date_creation TEXT
@@ -304,7 +565,7 @@ def init_db():
     # COMPTES PALEFRENIERS
     db.execute("""
         CREATE TABLE IF NOT EXISTS stable_staff (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom TEXT NOT NULL,
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
@@ -315,7 +576,7 @@ def init_db():
     # TACHES DES PALEFRENIERS
     db.execute("""
         CREATE TABLE IF NOT EXISTS stable_tasks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             titre TEXT NOT NULL,
             description TEXT,
             staff_id INTEGER,
@@ -327,7 +588,7 @@ def init_db():
     # PENSIONS COMPLETES SUR LES CHEVAUX DU CLUB
     db.execute("""
         CREATE TABLE IF NOT EXISTS full_boarding (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             pony_id INTEGER NOT NULL,
             child_id INTEGER NOT NULL,
             date_debut TEXT,
@@ -340,7 +601,7 @@ def init_db():
     # PROPRIETAIRES EXTERIEURS
     db.execute("""
         CREATE TABLE IF NOT EXISTS owners (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom TEXT NOT NULL,
             telephone TEXT,
             email TEXT
@@ -350,7 +611,7 @@ def init_db():
     # CHEVAUX DES PROPRIETAIRES
     db.execute("""
         CREATE TABLE IF NOT EXISTS owner_horses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             nom TEXT NOT NULL,
             owner_id INTEGER,
             description TEXT,
@@ -361,7 +622,7 @@ def init_db():
     # ATTRIBUTIONS DES CHEVAUX PROPRIETAIRES
     db.execute("""
         CREATE TABLE IF NOT EXISTS owner_horse_assignments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             horse_id INTEGER,
             child_id INTEGER,
             lesson_id INTEGER,
@@ -371,22 +632,14 @@ def init_db():
     """)
 
     # VERIFICATION DU NOM DE FAMILLE DES ELEVES
-    child_columns = [
-        row[1] for row in db.execute(
-            "PRAGMA table_info(children)"
-        ).fetchall()
-    ]
-
-    if "nom" not in child_columns:
-        db.execute(
-            "ALTER TABLE children ADD COLUMN nom TEXT DEFAULT ''"
-        )
-
+    db.execute(
+        "ALTER TABLE children ADD COLUMN IF NOT EXISTS nom TEXT DEFAULT ''"
+    )
     db.commit()
     # Attributions hebdomadaires des poneys et chevaux
     db.execute("""
         CREATE TABLE IF NOT EXISTS pony_assignments (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id BIGSERIAL PRIMARY KEY,
             child_id INTEGER,
             lesson_id INTEGER,
             pony_id INTEGER,
@@ -395,33 +648,25 @@ def init_db():
         )
     """)
     db.commit()   
-    # Vérifier la colonne du poney souhaité
-    columns = [
-        row[1] for row in db.execute(
-            "PRAGMA table_info(dp_requests)"
-        ).fetchall()
-    ]
+    # Colonnes ajoutées lors des évolutions de l'application
+    db.execute(
+        "ALTER TABLE dp_requests ADD COLUMN IF NOT EXISTS "
+        "poney_souhaite TEXT DEFAULT ''"
+    )
+    db.execute(
+        "ALTER TABLE assignments ADD COLUMN IF NOT EXISTS date_cours TEXT"
+    )
 
-    if "poney_souhaite" not in columns:
-        db.execute(
-            "ALTER TABLE dp_requests ADD COLUMN poney_souhaite TEXT DEFAULT ''"
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS ac_equitation_migrations (
+            name TEXT PRIMARY KEY,
+            completed_at TIMESTAMPTZ DEFAULT NOW()
         )
-
-    # Ajouter la date aux attributions des poneys
-    assignment_columns = [
-        row[1] for row in db.execute(
-            "PRAGMA table_info(assignments)"
-        ).fetchall()
-    ]
-
-    if "date_cours" not in assignment_columns:
-        db.execute(
-            "ALTER TABLE assignments ADD COLUMN date_cours TEXT"
-        )
-
+    """)
     db.commit()
 
 init_db()
+migrate_legacy_sqlite()
 
 # -------------------- SECURITE --------------------
 
@@ -800,7 +1045,7 @@ def public_page():
                         st.success(
                             "Compte créé ! Vous pouvez maintenant vous connecter."
                         )
-                    except sqlite3.Error:
+                    except psycopg.Error:
                         st.error("Impossible de créer le compte.")
 
 
@@ -1283,7 +1528,8 @@ def coach_page():
         "Gestion équidés",
         "Heures des équidés",
         "Pensions complètes",
-        "Gestion palefreniers"
+        "Gestion palefreniers",
+        "Sauvegardes"
     ])    
 # ---------------- TABLEAU DE BORD ----------------
 
@@ -1395,10 +1641,10 @@ def coach_page():
 
                     if prenom.strip() and nom.strip():
 
-                        nouveau = execute(
+                        nouvel_id = insert_id(
                             """INSERT INTO children
                             (family_id, prenom, nom, age, galop, photo)
-                            VALUES (?, ?, ?, ?, ?, ?)""",
+                            VALUES (?, ?, ?, ?, ?, ?) RETURNING id""",
                             (
                                 family_options[famille],
                                 prenom.strip(),
@@ -1408,8 +1654,6 @@ def coach_page():
                                 photo
                             )
                         )
-
-                        nouvel_id = nouveau.lastrowid
                         cours_id = course_options[cours_choisi]
 
                         if cours_id is not None:
@@ -2863,6 +3107,75 @@ def coach_page():
                 "🐴 " + staff["nom"] +
                 " — Identifiant : " + staff["username"]
             )
+    # =========================================================
+    # SAUVEGARDES ET RESTAURATION
+    # =========================================================
+
+    with tabs[15]:
+        st.header("💾 Sauvegardes AC Équitation")
+        st.write(
+            "Les modifications sont enregistrées directement dans Supabase. "
+            "Tu peux aussi télécharger une copie de sécurité sur ton ordinateur."
+        )
+
+        st.subheader("Télécharger une sauvegarde complète")
+        st.warning(
+            "Le fichier contient les données du club ainsi que les identifiants "
+            "et les mots de passe sous forme hachée. Garde-le privé."
+        )
+
+        try:
+            fichier_sauvegarde = create_backup_json()
+            st.download_button(
+                "⬇️ Télécharger toute la sauvegarde",
+                data=fichier_sauvegarde,
+                file_name=f"AC_Equitation_sauvegarde_{date.today().isoformat()}.json",
+                mime="application/json",
+                key="download_full_backup"
+            )
+        except Exception:
+            st.error("Impossible de créer la sauvegarde pour le moment.")
+
+        st.divider()
+        st.subheader("Restaurer une sauvegarde")
+        fichier_a_restaurer = st.file_uploader(
+            "Choisir un fichier de sauvegarde AC Équitation (.json)",
+            type=["json"],
+            key="restore_backup_file"
+        )
+
+        if fichier_a_restaurer is not None:
+            try:
+                apercu = json.loads(
+                    fichier_a_restaurer.getvalue().decode("utf-8")
+                )
+                if apercu.get("format") != "AC_EQUITATION_BACKUP_V1":
+                    st.error("Ce fichier n'est pas une sauvegarde AC Équitation.")
+                else:
+                    nombre = sum(
+                        len(valeurs)
+                        for valeurs in apercu.get("tables", {}).values()
+                        if isinstance(valeurs, list)
+                    )
+                    st.info(
+                        f"Sauvegarde du {apercu.get('created_at', 'date inconnue')} "
+                        f"— {nombre} enregistrements trouvés."
+                    )
+                    st.caption(
+                        "La restauration ajoute les données manquantes sans "
+                        "supprimer ni remplacer les données déjà présentes."
+                    )
+                    if st.button(
+                        "Restaurer cette sauvegarde",
+                        key="confirm_restore_backup"
+                    ):
+                        restore_backup_json(fichier_a_restaurer.getvalue())
+                        st.success("Sauvegarde restaurée.")
+                        st.rerun()
+            except Exception:
+                st.error("Le fichier est illisible ou la sauvegarde est endommagée.")
+
+
 # =========================================================
 # CREATION DES COMPTES COACHS
 # =========================================================
@@ -2937,7 +3250,7 @@ def coach_registration_page():
                     st.success(
                         "Compte coach créé ! Tu peux maintenant te connecter."
                     )
-                except sqlite3.Error:
+                except psycopg.Error:
                     st.error("Erreur pendant la création du compte.")
 
 
